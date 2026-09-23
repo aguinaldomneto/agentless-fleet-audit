@@ -8,8 +8,9 @@ const src = fs.readFileSync(path.join(__dirname, '../../n8n/code/format_message.
 const run = (rows) =>
   new Function('$input', src)({ all: () => rows.map((json) => ({ json })) });
 
-const row = (o) => ({ id: 1, host: 'alpine-01', rule: 'cert_expiry', severity: 'critical',
-  subject: '/opt/app/certs/app.crt', detail: 'vence em 5 dias', state: 'firing',
+const row = (o) => ({ id: 1, host: 'alpine-01', address: 'target-alpine', rule: 'cert_expiry',
+  severity: 'critical', subject: '/opt/app/certs/app.crt', detail: 'vence em 5 dias',
+  state: 'firing', first_seen: '2026-09-23T17:05:00Z', resolved_at: null,
   chat_id: '123', ...o });
 
 let n = 0;
@@ -17,38 +18,57 @@ const t = (name, fn) => { fn(); n++; console.log('ok   -', name); };
 
 t('sem pendências não envia nada', () => {
   assert.deepStrictEqual(run([]), []);
-});
-
-t('Postgres vazio (item sem id) não envia nada', () => {
   assert.deepStrictEqual(run([{ success: true }]), []);
 });
 
-t('mensagem com alerta e recuperação, críticos primeiro', () => {
-  const [out] = run([
-    row({ id: 1, severity: 'warning', host: 'b' }),
-    row({ id: 2, severity: 'critical', host: 'z' }),
-    row({ id: 3, state: 'resolved', rule: 'fs_usage', subject: '/data' }),
-  ]);
-  const t = out.json.text;
-  assert.match(t, /2 alerta\(s\), 1 recuperação/);
-  assert.ok(t.indexOf('🔴') < t.indexOf('🟡'), 'critical antes de warning');
-  assert.ok(t.indexOf('🟡') < t.indexOf('✅'), 'recuperação por último');
-  assert.deepStrictEqual(out.json.ids, [2, 1, 3]);
+t('evento aberto no formato de chamado', () => {
+  const [out] = run([row()]);
+  const txt = out.json.text;
+  assert.match(txt, /^🔴 <b>EVENTO ABERTO<\/b>/);
+  assert.match(txt, /Severidade:<\/b> CRÍTICA/);
+  assert.match(txt, /Status:<\/b> ATIVO/);
+  assert.match(txt, /Host:<\/b> alpine-01 \(target-alpine\)/);
+  assert.match(txt, /Alerta:<\/b> Certificado próximo do vencimento/);
+  assert.match(txt, /Data de criação:<\/b> 23\/09\/2026 14:05:00/); // UTC-3
+  assert.doesNotMatch(txt, /resolução/);
+  assert.deepStrictEqual(out.json.ids, [1]);
   assert.strictEqual(out.json.chat_id, '123');
 });
 
-t('escapa HTML (subject vindo do servidor)', () => {
+t('evento resolvido mostra resolução e duração', () => {
+  const [out] = run([row({ state: 'resolved', resolved_at: '2026-09-24T19:20:00Z' })]);
+  const txt = out.json.text;
+  assert.match(txt, /^✅ <b>EVENTO RESOLVIDO<\/b>/);
+  assert.match(txt, /Status:<\/b> NORMALIZADO/);
+  assert.match(txt, /Data de resolução:<\/b> 24\/09\/2026 16:20:00/);
+  assert.match(txt, /Duração:<\/b> 1d 2h 15min/);
+  assert.match(txt, /Último estado:<\/b>/);
+});
+
+t('uma mensagem por evento, abertos críticos primeiro e resolvidos por último', () => {
+  const out = run([
+    row({ id: 1, state: 'resolved', resolved_at: '2026-09-24T00:00:00Z' }),
+    row({ id: 2, severity: 'warning' }),
+    row({ id: 3, severity: 'critical' }),
+  ]);
+  assert.deepStrictEqual(out.map((o) => o.json.ids[0]), [3, 2, 1]);
+});
+
+t('host sem address separado não duplica o nome', () => {
+  const [out] = run([row({ address: 'alpine-01' })]);
+  assert.match(out.json.text, /Host:<\/b> alpine-01\n/);
+});
+
+t('escapa HTML vindo do servidor', () => {
   const [out] = run([row({ subject: '/tmp/<script>&x' })]);
   assert.match(out.json.text, /&lt;script&gt;&amp;x/);
   assert.doesNotMatch(out.json.text, /<script>/);
 });
 
-t('respeita limite do Telegram e só marca o que foi enviado', () => {
-  const many = Array.from({ length: 200 }, (_, i) => row({ id: i + 1, detail: 'x'.repeat(80) }));
-  const [out] = run(many);
-  assert.ok(out.json.text.length <= 4096, `tamanho ${out.json.text.length}`);
-  assert.ok(out.json.ids.length < 200);
-  assert.match(out.json.text, new RegExp(`e mais ${200 - out.json.ids.length}`));
+t('limita a 20 mensagens por execução', () => {
+  const out = run(Array.from({ length: 50 }, (_, i) => row({ id: i + 1 })));
+  assert.strictEqual(out.length, 20);
+  assert.ok(out.every((o) => o.json.text.length < 4096));
 });
 
 t('sem chat_id falha com instrução clara', () => {
