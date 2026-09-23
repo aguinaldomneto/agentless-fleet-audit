@@ -1,5 +1,7 @@
 # agentless-fleet-audit
 
+[![ci](https://github.com/aguinaldomneto/agentless-fleet-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/aguinaldomneto/agentless-fleet-audit/actions/workflows/ci.yml)
+
 Inventário e compliance **sem agente** para servidores Linux e Unix (incluindo HP-UX), orquestrado com **n8n**, armazenado em **PostgreSQL** e visualizado no **Grafana**.
 
 > Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram com deduplicação e aviso de recuperação; dashboards em andamento.
@@ -29,6 +31,12 @@ flowchart LR
     DB --> G[Grafana]
 ```
 
+## Alertas
+
+Um evento por mensagem, no formato de chamado. Recuperação é avisada com data de resolução e duração; alerta aberto não se repete a cada coleta.
+
+<p align="center"><img src="docs/img/alerta-telegram.jpeg" alt="Alertas de evento aberto e resolvido no Telegram" width="380"></p>
+
 ## Decisões técnicas
 
 | Decisão | Motivo |
@@ -46,6 +54,7 @@ flowchart LR
 | **`StrictHostKeyChecking=accept-new`** | Confia na primeira conexão e depois exige a mesma chave de host. Chave mudou (reinstalação ou MITM) = coleta falha e vira alerta crítico. |
 | **Alerta de recuperação** | Achado resolvido gera aviso de "resolved", mas só se o alerta original chegou a ser enviado. |
 | **Configuração de ambiente no banco** | `chat_id` do Telegram fica na tabela `settings`: o workflow versionado é o mesmo em qualquer ambiente e o repositório público não expõe dados pessoais. |
+| **CI enxuto e reprodutível** | Runner e actions fixados em versão, timeout por job, execução anterior cancelada a cada push e o teste "busybox" roda num Alpine de verdade (shell **e** ferramentas). |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
 

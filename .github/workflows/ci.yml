@@ -1,48 +1,68 @@
 name: ci
 on:
   push:
+    paths-ignore: ["docs/**", "**.md"]   # commit só de documentação não roda CI
   pull_request:
+  workflow_dispatch:
 
+# Push novo na mesma branch cancela a execução anterior (não empilha fila).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Runner fixado: ubuntu-latest muda de versão sozinho (aviso da migração p/ Ubuntu 26).
 jobs:
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: shellcheck (POSIX)
         run: make lint
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     strategy:
+      fail-fast: false
       matrix:
-        shell: [dash, "bash --posix", "busybox sh"]
+        include:
+          - name: dash
+            run: dash tests/run.sh
+          - name: bash --posix
+            run: bash --posix tests/run.sh
+          # Alpine de verdade: shell E ferramentas (awk, sed, df) do busybox.
+          # Instalar busybox no Ubuntu testaria só o shell, com awk/sed GNU.
+          - name: busybox (alpine)
+            run: docker run --rm -v "$PWD":/w -w /w alpine:3.20 sh tests/run.sh
+    name: test (${{ matrix.name }})
     steps:
-      - uses: actions/checkout@v4
-      - name: instalar shells
-        run: sudo apt-get update -q && sudo apt-get install -y -q dash busybox
-      - name: testes com ${{ matrix.shell }}
-        run: ${{ matrix.shell }} tests/run.sh
+      - uses: actions/checkout@v5
+      - run: ${{ matrix.run }}
 
   gateway:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with: { python-version: "3.12" }
       - name: testes do gateway
         run: make test-gateway
 
   n8n:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with: { node-version: "22" }
       - name: Code nodes testados e sincronizados com o workflow
         run: make test-n8n
 
   sql:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:16-alpine
@@ -59,18 +79,19 @@ jobs:
       LOAD_LAB_SEED: "true"
       SCHEMA_DIR: ${{ github.workspace }}/db
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: init + migrations (como no container)
         run: sh db/00-init.sh
       - name: migrations são idempotentes
         run: sh db/migrate.sh
       - name: testes da ingestão e regras
-        run: PGPASSWORD=ci psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f tests/sql/test_ingest.sql
+        run: psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f tests/sql/test_ingest.sql
 
   compose:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: validar docker-compose.yml
         run: |
           cp .env.example .env
