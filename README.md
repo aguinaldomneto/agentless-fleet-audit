@@ -2,7 +2,7 @@
 
 Inventário e compliance **sem agente** para servidores Linux e Unix (incluindo HP-UX), orquestrado com **n8n**, armazenado em **PostgreSQL** e visualizado no **Grafana**.
 
-> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); notificações e dashboards em andamento.
+> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram com deduplicação e aviso de recuperação; dashboards em andamento.
 
 ## Problema
 
@@ -24,7 +24,8 @@ flowchart LR
     GW -->|4. saída bruta| N
     N -->|5. ingest_collection| DB
     DB -->|regras + dedup| F[findings]
-    F -.->|em andamento| A[Telegram]
+    F -->|6. pendências| N
+    N -->|7. só marca enviado se o Telegram aceitou| A[Telegram]
     DB --> G[Grafana]
 ```
 
@@ -44,6 +45,8 @@ flowchart LR
 | **Só coleta completa "apaga" ou resolve** | Saída truncada nunca remove usuário/certificado do inventário nem fecha alerta. Ausência de dado não é prova de que o problema sumiu. |
 | **`StrictHostKeyChecking=accept-new`** | Confia na primeira conexão e depois exige a mesma chave de host. Chave mudou (reinstalação ou MITM) = coleta falha e vira alerta crítico. |
 | **Alerta de recuperação** | Achado resolvido gera aviso de "resolved", mas só se o alerta original chegou a ser enviado. |
+| **Configuração de ambiente no banco** | `chat_id` do Telegram fica na tabela `settings`: o workflow versionado é o mesmo em qualquer ambiente e o repositório público não expõe dados pessoais. |
+| **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
 
 ## Estrutura
@@ -52,6 +55,7 @@ flowchart LR
 collector/collect.sh     coletor POSIX (Linux + HP-UX)
 gateway/                 serviço HTTP que executa o coletor via SSH (Python stdlib)
 n8n/workflows/           workflows versionados (importados com make import-workflows)
+n8n/code/                código dos Code nodes, testado fora do n8n (sync_code.py embute no JSON)
 tests/                   testes dos parsers com fixtures (inclui bdf com linha quebrada)
 tests/sql/               testes da ingestão, regras, dedup e escalada
 lab/target/              imagens dos servidores-alvo simulados (Debian, Rocky, Alpine/busybox)
@@ -70,9 +74,10 @@ make collect-debian           # coleta manual, sem n8n, para validar SSH + colet
 make import-workflows         # importa o workflow de coleta no n8n
 make test                     # testes do coletor e do gateway
 make test-sql                 # testes da ingestão no banco em execução
+make set-chat-id CHAT_ID=...  # destino dos alertas no Telegram (fica no banco, não no Git)
 ```
 
-No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) e **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`).
+No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) e **Telegram** (token do bot).
 
 - n8n: http://localhost:5678
 - Grafana: http://localhost:3000
@@ -91,7 +96,7 @@ O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` t
 - [x] Laboratório Docker Compose + schema com privilégio mínimo
 - [x] Gateway SSH + workflow n8n de coleta + ingestão transacional
 - [x] Regras (disco, certificado, UID 0, falha de coleta) com dedup, escalada e recuperação
-- [ ] Notificação no Telegram
+- [x] Notificação no Telegram (reenvio automático se o envio falhar)
 - [ ] Dashboards Grafana provisionados
 - [ ] Workflows versionados e importados via CI
 - [ ] Terraform: mesmo stack em VM na nuvem

@@ -1,5 +1,5 @@
 {
-  "name": "fleet-audit: coleta",
+  "name": "fleet-audit: coleta e alertas",
   "nodes": [
     {
       "parameters": {},
@@ -125,6 +125,73 @@
         240,
         420
       ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT p.id, p.host, p.rule, p.severity, p.subject, p.detail, p.state,\n       (SELECT value FROM settings WHERE key = 'telegram_chat_id') AS chat_id\nFROM v_pending_notifications p\nORDER BY p.id;",
+        "options": {}
+      },
+      "id": "1d6e89c7-7cfa-5984-81e7-9fa042a2bab4",
+      "name": "Pendências",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        960,
+        100
+      ],
+      "executeOnce": true,
+      "notes": "Roda uma vez por execução (não uma por host)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nó \"Montar mensagem\" (Code, Run Once for All Items).\n// Entrada: linhas de v_pending_notifications (+ chat_id).\n// Saída: 1 item { chat_id, text, ids } ou nenhum item (nada a enviar).\n// Fonte da verdade deste código: n8n/code/format_message.js (testado em tests/n8n).\nconst MAX = 3900; // limite do Telegram é 4096; sobra margem para o rodapé\nconst ICON = { critical: '🔴', warning: '🟡', info: '🔵', resolved: '✅' };\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r.id != null);\nif (rows.length === 0) return [];\n\nconst chatId = rows[0].chat_id;\nif (!chatId) {\n  throw new Error(\"chat_id do Telegram não configurado. Rode: make set-chat-id CHAT_ID=<id>\");\n}\n\nconst firing = rows.filter((r) => r.state === 'firing');\nconst resolved = rows.filter((r) => r.state === 'resolved');\nconst order = { critical: 0, warning: 1, info: 2 };\nfiring.sort((a, b) => order[a.severity] - order[b.severity] || a.host.localeCompare(b.host));\n\nconst block = (r) => {\n  const icon = r.state === 'resolved' ? ICON.resolved : ICON[r.severity] || '⚪';\n  const tag = r.state === 'resolved' ? 'RESOLVIDO' : String(r.severity).toUpperCase();\n  return `${icon} <b>${esc(r.host)}</b> · ${esc(r.rule)} · ${tag}\\n` +\n         `<code>${esc(r.subject)}</code>\\n${esc(r.detail)}`;\n};\n\nconst header = `<b>fleet-audit</b>: ${firing.length} alerta(s), ${resolved.length} recuperação(ões)\\n`;\nlet text = header;\nconst sent = [];\nfor (const r of [...firing, ...resolved]) {\n  const b = '\\n' + block(r) + '\\n';\n  if (text.length + b.length > MAX) break;\n  text += b;\n  sent.push(r.id);\n}\nconst rest = rows.length - sent.length;\nif (rest > 0) text += `\\n… e mais ${rest}. Veja no Grafana (v_pending_notifications).`;\n\n// Só os itens que couberam na mensagem são marcados como enviados;\n// o restante sai na próxima execução.\nreturn [{ json: { chat_id: String(chatId), text, ids: sent } }];\n"
+      },
+      "id": "2e7d9e57-e62f-51b4-acc2-d9ff49ce3a71",
+      "name": "Montar mensagem",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        100
+      ],
+      "notes": "code: format_message.js"
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $json.chat_id }}",
+        "text": "={{ $json.text }}",
+        "additionalFields": {
+          "appendAttribution": false,
+          "parse_mode": "HTML"
+        }
+      },
+      "id": "8de93fba-d18c-5009-a3b4-694bf0d8256e",
+      "name": "Enviar Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1440,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT mark_notified($1::bigint[]) AS marcados;",
+        "options": {
+          "queryReplacement": "={{ [ '{' + $('Montar mensagem').item.json.ids.join(',') + '}' ] }}"
+        }
+      },
+      "id": "e5ff764c-5dd5-556b-af45-ed66c80ee075",
+      "name": "Marcar enviado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1680,
+        100
+      ],
+      "notes": "Só roda se o Telegram aceitou. Falhou? Nada é marcado e reenvia no próximo ciclo."
     }
   ],
   "connections": {
@@ -177,6 +244,50 @@
         [
           {
             "node": "Retenção 90 dias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gravar no inventário": {
+      "main": [
+        [
+          {
+            "node": "Pendências",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pendências": {
+      "main": [
+        [
+          {
+            "node": "Montar mensagem",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar mensagem": {
+      "main": [
+        [
+          {
+            "node": "Enviar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar Telegram": {
+      "main": [
+        [
+          {
+            "node": "Marcar enviado",
             "type": "main",
             "index": 0
           }

@@ -32,6 +32,15 @@ jobs:
       - name: testes do gateway
         run: make test-gateway
 
+  n8n:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: Code nodes testados e sincronizados com o workflow
+        run: make test-n8n
+
   sql:
     runs-on: ubuntu-latest
     services:

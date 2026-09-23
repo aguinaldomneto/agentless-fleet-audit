@@ -4,7 +4,7 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
            GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint \
-        collect-debian collect-rocky collect-alpine forget-hostkeys
+        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id test-n8n
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -33,11 +33,21 @@ import-workflows: ## importa n8n/workflows/*.json no n8n em execução
 forget-hostkeys: ## após recriar os alvos (chave de host nova)
 	docker compose exec collector-gateway rm -f /state/known_hosts
 
-test: test-gateway ## testes do coletor + gateway (sem Docker)
+test: test-gateway test-n8n ## testes do coletor, gateway e Code nodes (sem Docker)
 	sh tests/run.sh
 
 test-gateway:
 	cd gateway && python3 -m unittest -q
+
+test-n8n:
+	node tests/n8n/test_format_message.js
+	python3 n8n/sync_code.py --check
+
+set-chat-id:     ## grava o chat_id do Telegram no banco: make set-chat-id CHAT_ID=123456
+	@case "$(CHAT_ID)" in ''|*[!0-9-]*) echo "uso: make set-chat-id CHAT_ID=<número>"; exit 1;; esac
+	@echo "INSERT INTO settings (key, value) VALUES ('telegram_chat_id', '$(CHAT_ID)') \
+	  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();" | \
+	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 && echo "chat_id gravado"
 
 test-sql:        ## testes da ingestão no Postgres em execução
 	docker compose exec -T postgres psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f - < tests/sql/test_ingest.sql
