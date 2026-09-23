@@ -4,7 +4,7 @@
 
 Inventário e compliance **sem agente** para servidores Linux e Unix (incluindo HP-UX), orquestrado com **n8n**, armazenado em **PostgreSQL** e visualizado no **Grafana**.
 
-> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram com deduplicação e aviso de recuperação; dashboards em andamento.
+> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram com deduplicação e aviso de recuperação; dashboard Grafana provisionado como código.
 
 ## Problema
 
@@ -55,6 +55,7 @@ Um evento por mensagem, no formato de chamado. Recuperação é avisada com data
 | **Alerta de recuperação** | Achado resolvido gera aviso de "resolved", mas só se o alerta original chegou a ser enviado. |
 | **Configuração de ambiente no banco** | `chat_id` do Telegram fica na tabela `settings`: o workflow versionado é o mesmo em qualquer ambiente e o repositório público não expõe dados pessoais. |
 | **CI enxuto e reprodutível** | Runner e actions fixados em versão, timeout por job, execução anterior cancelada a cada push e o teste "busybox" roda num Alpine de verdade (shell **e** ferramentas). |
+| **Dashboard como código** | JSON versionado, provisionado na subida, edição pela tela bloqueada (`allowUiUpdates: false`). Grafana lê com usuário somente leitura. |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
 
@@ -69,7 +70,8 @@ tests/                   testes dos parsers com fixtures (inclui bdf com linha q
 tests/sql/               testes da ingestão, regras, dedup e escalada
 lab/target/              imagens dos servidores-alvo simulados (Debian, Rocky, Alpine/busybox)
 db/                      init, migrations versionadas e seed do Postgres
-grafana/provisioning/    datasource provisionado
+grafana/provisioning/    datasource e provider de dashboards
+grafana/dashboards/      dashboard em JSON versionado (fonte da verdade)
 docker-compose.yml       laboratório completo
 ```
 
@@ -89,7 +91,7 @@ make set-chat-id CHAT_ID=...  # destino dos alertas no Telegram (fica no banco, 
 No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) e **Telegram** (token do bot).
 
 - n8n: http://localhost:5678
-- Grafana: http://localhost:3000
+- Grafana: http://localhost:3000 (usuário `admin`, senha `GRAFANA_ADMIN_PASSWORD` do `.env`); o dashboard abre direto na home
 
 O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` tem `/data` em ~90% e um certificado vencendo em 20 dias, e `alpine-01` tem um certificado vencendo em 5 dias.
 
@@ -106,6 +108,6 @@ O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` t
 - [x] Gateway SSH + workflow n8n de coleta + ingestão transacional
 - [x] Regras (disco, certificado, UID 0, falha de coleta) com dedup, escalada e recuperação
 - [x] Notificação no Telegram (reenvio automático se o envio falhar)
-- [ ] Dashboards Grafana provisionados
+- [x] Dashboard Grafana provisionado (eventos, hosts, disco, certificados, taxa de coleta, MTTR)
 - [ ] Workflows versionados e importados via CI
 - [ ] Terraform: mesmo stack em VM na nuvem

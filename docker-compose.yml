@@ -72,11 +72,16 @@ services:
       - "127.0.0.1:3000:3000"
     environment:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina no .env}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/fleet-audit.json
+      GF_USERS_DEFAULT_LANGUAGE: pt-BR
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD}
       TZ: ${TZ}
     volumes:
       - grafanadata:/var/lib/grafana
       - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/etc/grafana/dashboards:ro    # dashboards como código
     networks: [lab]
 
   # --- servidores-alvo simulados (acesso só por chave, sem agente) ---------

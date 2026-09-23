@@ -1,0 +1,12 @@
+# Dashboards como código: o JSON versionado em grafana/dashboards é a fonte da verdade.
+# allowUiUpdates=false: mudança feita na tela não sobrevive; altere o JSON e faça commit.
+apiVersion: 1
+providers:
+  - name: fleet-audit
+    folder: fleet-audit
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /etc/grafana/dashboards

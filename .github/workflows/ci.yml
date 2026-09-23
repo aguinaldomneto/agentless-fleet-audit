@@ -98,3 +98,12 @@ jobs:
           sed -i 's/^N8N_ENCRYPTION_KEY=$/N8N_ENCRYPTION_KEY=ci/; s/^GATEWAY_TOKEN=$/GATEWAY_TOKEN=ci/' .env
           touch lab/keys/collector lab/keys/collector.pub
           docker compose config -q
+      - name: dashboard Grafana é JSON válido e usa o datasource provisionado
+        run: |
+          python3 - <<'PY'
+          import json
+          d = json.load(open("grafana/dashboards/fleet-audit.json"))
+          uids = {t["datasource"]["uid"] for p in d["panels"] for t in p.get("targets", [])}
+          assert uids == {"inventory"}, uids
+          print(len(d["panels"]), "painéis ok")
+          PY
