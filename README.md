@@ -4,7 +4,7 @@
 
 Inventário e compliance **sem agente** para servidores Linux e Unix (incluindo HP-UX), orquestrado com **n8n**, armazenado em **PostgreSQL** e visualizado no **Grafana**.
 
-> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram com deduplicação e aviso de recuperação; dashboard Grafana provisionado como código.
+> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram, abertura e fechamento automático de chamado no Jira e dashboard Grafana provisionado como código.
 
 ## Problema
 
@@ -28,6 +28,7 @@ flowchart LR
     DB -->|regras + dedup| F[findings]
     F -->|6. pendências| N
     N -->|7. só marca enviado se o Telegram aceitou| A[Telegram]
+    F -->|crítico: abre / resolvido: comenta e fecha| J[Jira]
     DB --> G[Grafana]
 ```
 
@@ -56,6 +57,7 @@ Um evento por mensagem, no formato de chamado. Recuperação é avisada com data
 | **Configuração de ambiente no banco** | `chat_id` do Telegram fica na tabela `settings`: o workflow versionado é o mesmo em qualquer ambiente e o repositório público não expõe dados pessoais. |
 | **CI enxuto e reprodutível** | Runner e actions fixados em versão, timeout por job, execução anterior cancelada a cada push e o teste "busybox" roda num Alpine de verdade (shell **e** ferramentas). |
 | **Dashboard como código** | JSON versionado, provisionado na subida, edição pela tela bloqueada (`allowUiUpdates: false`). Grafana lê com usuário somente leitura. |
+| **Jira num workflow separado** | Chamado só para evento crítico; resolução comenta duração e move para a primeira transição de categoria *done* (funciona com qualquer fluxo de projeto). Jira fora do ar não afeta o Telegram, e vice-versa. |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
 
@@ -67,7 +69,7 @@ gateway/                 serviço HTTP que executa o coletor via SSH (Python std
 n8n/workflows/           workflows versionados (importados com make import-workflows)
 n8n/code/                código dos Code nodes, testado fora do n8n (sync_code.py embute no JSON)
 tests/                   testes dos parsers com fixtures (inclui bdf com linha quebrada)
-tests/sql/               testes da ingestão, regras, dedup e escalada
+tests/sql/               testes da ingestão, regras, dedup, escalada e fila do Jira
 lab/target/              imagens dos servidores-alvo simulados (Debian, Rocky, Alpine/busybox)
 db/                      init, migrations versionadas e seed do Postgres
 grafana/provisioning/    datasource e provider de dashboards
@@ -86,9 +88,11 @@ make import-workflows         # importa o workflow de coleta no n8n
 make test                     # testes do coletor e do gateway
 make test-sql                 # testes da ingestão no banco em execução
 make set-chat-id CHAT_ID=...  # destino dos alertas no Telegram (fica no banco, não no Git)
+make set-jira BASE_URL=https://x.atlassian.net PROJECT=OPS ISSUE_TYPE=Task   # opcional
+make import-workflow WF=jira  # importa só um workflow
 ```
 
-No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) e **Telegram** (token do bot).
+No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) **Telegram** (token do bot) e, para o Jira, **Basic Auth** (e-mail da conta Atlassian + API token).
 
 - n8n: http://localhost:5678
 - Grafana: http://localhost:3000 (usuário `admin`, senha `GRAFANA_ADMIN_PASSWORD` do `.env`); o dashboard abre direto na home
@@ -109,5 +113,6 @@ O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` t
 - [x] Regras (disco, certificado, UID 0, falha de coleta) com dedup, escalada e recuperação
 - [x] Notificação no Telegram (reenvio automático se o envio falhar)
 - [x] Dashboard Grafana provisionado (eventos, hosts, disco, certificados, taxa de coleta, MTTR)
+- [x] Chamado no Jira: abre em evento crítico, comenta e fecha na resolução
 - [ ] Workflows versionados e importados via CI
 - [ ] Terraform: mesmo stack em VM na nuvem

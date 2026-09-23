@@ -4,7 +4,7 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
            GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint \
-        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id test-n8n
+        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -27,8 +27,12 @@ reset:           ## APAGA volumes (banco, n8n, grafana) e recomeça do zero
 migrate:         ## aplica migrations pendentes no banco em execução
 	docker compose exec -T postgres sh /schema/migrate.sh
 
-import-workflows: ## importa n8n/workflows/*.json no n8n em execução
+import-workflows: ## importa TODOS os workflows (sobrescreve e zera as credenciais escolhidas nos nós)
 	docker compose exec -T n8n n8n import:workflow --separate --input=/workflows
+
+import-workflow: ## importa um só: make import-workflow WF=jira
+	@test -n "$(WF)" || (echo "uso: make import-workflow WF=<nome sem .json>"; exit 1)
+	docker compose exec -T n8n n8n import:workflow --input=/workflows/$(WF).json
 
 forget-hostkeys: ## após recriar os alvos (chave de host nova)
 	docker compose exec collector-gateway rm -f /state/known_hosts
@@ -41,6 +45,7 @@ test-gateway:
 
 test-n8n:
 	node tests/n8n/test_format_message.js
+	node tests/n8n/test_jira.js
 	python3 n8n/sync_code.py --check
 
 set-chat-id:     ## grava o chat_id do Telegram no banco: make set-chat-id CHAT_ID=123456
@@ -49,8 +54,18 @@ set-chat-id:     ## grava o chat_id do Telegram no banco: make set-chat-id CHAT_
 	  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();" | \
 	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 && echo "chat_id gravado"
 
-test-sql:        ## testes da ingestão no Postgres em execução
-	docker compose exec -T postgres psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f - < tests/sql/test_ingest.sql
+test-sql:        ## testes da ingestão e do Jira no Postgres em execução
+	for t in tests/sql/test_*.sql; do \
+	  docker compose exec -T postgres psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f - < $$t || exit 1; done
+
+set-jira:        ## make set-jira BASE_URL=https://x.atlassian.net PROJECT=OPS [ISSUE_TYPE=Incident]
+	@echo "$(BASE_URL)" | grep -Eq '^https://[A-Za-z0-9.-]+$$' || { echo "BASE_URL inválida (ex.: https://seu-site.atlassian.net)"; exit 1; }
+	@echo "$(PROJECT)" | grep -Eq '^[A-Z][A-Z0-9_]+$$' || { echo "PROJECT inválido (chave do projeto, ex.: OPS)"; exit 1; }
+	@echo "$(or $(ISSUE_TYPE),Task)" | grep -Eq '^[A-Za-z][A-Za-z ]{0,40}$$' || { echo "ISSUE_TYPE inválido"; exit 1; }
+	@printf "%s\n" \
+	  "INSERT INTO settings (key, value) VALUES ('jira_base_url', '$(BASE_URL)'), ('jira_project', '$(PROJECT)'), ('jira_issue_type', '$(or $(ISSUE_TYPE),Task)')" \
+	  "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();" | \
+	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 && echo "Jira configurado"
 
 lint:            ## shellcheck em modo POSIX
 	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh db/00-init.sh db/migrate.sh

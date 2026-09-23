@@ -84,8 +84,8 @@ jobs:
         run: sh db/00-init.sh
       - name: migrations são idempotentes
         run: sh db/migrate.sh
-      - name: testes da ingestão e regras
-        run: psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f tests/sql/test_ingest.sql
+      - name: testes da ingestão, regras e fila do Jira
+        run: for t in tests/sql/test_*.sql; do psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f "$t" || exit 1; done
 
   compose:
     runs-on: ubuntu-24.04

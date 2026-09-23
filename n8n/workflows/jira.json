@@ -1,0 +1,411 @@
+{
+  "name": "fleet-audit: chamados Jira",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "79ee9d93-ecbc-55b8-b488-96342eee0e45",
+      "name": "Executar agora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "bad929aa-7c8e-52da-87e2-5f38f726875e",
+      "name": "A cada 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM v_jira_queue ORDER BY id LIMIT 20;",
+        "options": {}
+      },
+      "id": "fb9471ab-d178-5898-8ef8-de475e7c811f",
+      "name": "Fila Jira",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        100
+      ],
+      "notes": "Credencial: Postgres inventory_rw. Vazia se o Jira não estiver configurado (make set-jira)."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nó \"Montar requisição Jira\" (Code, Run Once for All Items).\n// Entrada: linhas de v_jira_queue. Saída: 1 item por evento com as URLs e os\n// corpos prontos para a API REST v3 do Jira Cloud (texto em formato ADF).\n// Fonte da verdade deste código: n8n/code/jira_payload.js (testado em tests/n8n).\nconst TZ = 'America/Sao_Paulo';\nconst RULE = {\n  cert_expiry: 'Certificado próximo do vencimento',\n  fs_usage: 'Uso de filesystem acima do limite',\n  uid0_extra: 'Conta com UID 0 além do root',\n  collection_failed: 'Falha na coleta (SSH)',\n};\nconst SEV = { critical: 'CRÍTICA', warning: 'ATENÇÃO', info: 'INFORMATIVA' };\n\nconst fmtDate = (v) => v ? new Intl.DateTimeFormat('pt-BR', {\n  timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric',\n  hour: '2-digit', minute: '2-digit', second: '2-digit',\n}).format(new Date(v)).replace(',', '') : '-';\nconst fmtDuration = (from, to) => {\n  const min = Math.max(0, Math.round((new Date(to) - new Date(from)) / 60000));\n  const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;\n  return [d && `${d}d`, h && `${h}h`, `${m}min`].filter(Boolean).join(' ');\n};\n\n// Atlassian Document Format: parágrafos com rótulo em negrito.\nconst text = (t, bold) => ({ type: 'text', text: String(t ?? '-'), ...(bold ? { marks: [{ type: 'strong' }] } : {}) });\nconst field = (label, value) => ({ type: 'paragraph', content: [text(`${label}: `, true), text(value)] });\nconst doc = (...content) => ({ type: 'doc', version: 1, content });\n\nfunction openRequest(r, base) {\n  const host = r.address && r.address !== r.host ? `${r.host} (${r.address})` : r.host;\n  const alerta = RULE[r.rule] || r.rule;\n  return {\n    method: 'POST',\n    url: `${base}/rest/api/3/issue`,\n    body: {\n      fields: {\n        project: { key: r.project },\n        issuetype: { name: r.issue_type || 'Task' },\n        summary: `[${SEV[r.severity] || r.severity}] ${r.host}: ${alerta}`.slice(0, 250),\n        // label com o id do evento: permite achar o chamado de qualquer evento\n        labels: ['fleet-audit', `sev-${r.severity}`, `rule-${r.rule}`, `fleet-audit-evt-${r.id}`],\n        description: doc(\n          field('Severidade', SEV[r.severity] || r.severity),\n          field('Host', host),\n          field('Alerta', alerta),\n          field('Objeto', r.subject),\n          field('Detalhe', r.detail),\n          field('Data de criação', fmtDate(r.first_seen)),\n          { type: 'paragraph', content: [text(`Aberto automaticamente pelo fleet-audit (evento #${r.id}).`)] },\n        ),\n      },\n    },\n  };\n}\n\nfunction closeRequest(r, base) {\n  return {\n    method: 'POST',\n    url: `${base}/rest/api/3/issue/${encodeURIComponent(r.jira_key)}/comment`,\n    transitions_url: `${base}/rest/api/3/issue/${encodeURIComponent(r.jira_key)}/transitions`,\n    body: {\n      body: doc(\n        { type: 'paragraph', content: [text('✅ Evento normalizado', true)] },\n        field('Data de resolução', fmtDate(r.resolved_at)),\n        field('Duração', fmtDuration(r.first_seen, r.resolved_at)),\n        field('Último estado', r.detail),\n      ),\n    },\n  };\n}\n\nreturn $input.all()\n  .map((i) => i.json)\n  .filter((r) => r.id != null && (r.action === 'open' || r.action === 'close'))\n  .map((r) => {\n    const base = String(r.base_url || '').replace(/\\/+$/, '');\n    if (!/^https:\\/\\/[A-Za-z0-9.-]+$/.test(base)) {\n      throw new Error(`jira_base_url inválida: \"${r.base_url}\". Use: make set-jira BASE_URL=https://seu-site.atlassian.net ...`);\n    }\n    const req = r.action === 'open' ? openRequest(r, base) : closeRequest(r, base);\n    return { json: { id: r.id, action: r.action, jira_key: r.jira_key ?? null, ...req } };\n  });\n"
+      },
+      "id": "54bb0973-76a7-5bb8-8081-b0cc8a9450e5",
+      "name": "Montar requisição Jira",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        100
+      ],
+      "notes": "code: jira_payload.js"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "1b06630e-e1e2-568b-8fab-55e380ac4eaf",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "open",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "488803dc-1cd3-589a-982f-a7ea3792f735",
+      "name": "Abrir ou fechar?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        720,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "id": "e3594b6f-db5b-5fa0-b89b-47331a67a360",
+      "name": "Criar chamado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        0
+      ],
+      "notes": "Credencial: Basic Auth (e-mail Atlassian + API token)."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT jira_mark_opened($1::bigint, $2::text) AS jira_key;",
+        "options": {
+          "queryReplacement": "={{ [ $('Montar requisição Jira').item.json.id, $json.key ] }}"
+        }
+      },
+      "id": "eb51fd44-7af1-5165-9b0f-cce8795039f4",
+      "name": "Gravar chave",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json.body) }}"
+      },
+      "id": "8a18f5d7-5e04-5c99-9cc3-addcafa91c6b",
+      "name": "Comentar resolução",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $('Montar requisição Jira').item.json.transitions_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "21062fc3-a663-5c32-9dd7-b7927239ef42",
+      "name": "Listar transições",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1200,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "// Nó \"Escolher transição\" (Code, Run Once for Each Item).\n// A API não tem \"fechar chamado\": cada projeto tem seu próprio fluxo.\n// Escolhe a primeira transição cujo destino é da categoria \"done\".\n// Fonte da verdade deste código: n8n/code/jira_pick_transition.js.\nconst list = $json.transitions || [];\nconst done = list.find((t) => t?.to?.statusCategory?.key === 'done');\nreturn { json: { transition_id: done ? String(done.id) : null, transition_name: done ? done.name : null } };\n"
+      },
+      "id": "5d492d11-f7d4-534c-8d1d-61eece797112",
+      "name": "Escolher transição",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        240
+      ],
+      "notes": "code: jira_pick_transition.js"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "2a43eae5-f72a-5039-8c19-886c1fe4a33c",
+              "leftValue": "={{ $json.transition_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a036c98f-eeac-5e00-b1f8-40bac5e8ae0c",
+      "name": "Tem transição para concluído?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        240
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Montar requisição Jira').item.json.transitions_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "timeout": 30000
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ transition: { id: $json.transition_id } }) }}"
+      },
+      "id": "259d4ed7-2f23-5ce8-ad23-2cf37d90a185",
+      "name": "Fechar chamado",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        160
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT jira_mark_closed($1::bigint);",
+        "options": {
+          "queryReplacement": "={{ [ $('Montar requisição Jira').item.json.id ] }}"
+        }
+      },
+      "id": "7c2eb66f-ee31-560b-911c-78b5d0c6db79",
+      "name": "Marcar fechado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2160,
+        240
+      ],
+      "notes": "Sem transição para 'concluído' no fluxo do projeto: fica só o comentário e o evento é marcado como tratado."
+    }
+  ],
+  "connections": {
+    "Executar agora": {
+      "main": [
+        [
+          {
+            "node": "Fila Jira",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A cada 5 min": {
+      "main": [
+        [
+          {
+            "node": "Fila Jira",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fila Jira": {
+      "main": [
+        [
+          {
+            "node": "Montar requisição Jira",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar requisição Jira": {
+      "main": [
+        [
+          {
+            "node": "Abrir ou fechar?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Abrir ou fechar?": {
+      "main": [
+        [
+          {
+            "node": "Criar chamado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Comentar resolução",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Criar chamado": {
+      "main": [
+        [
+          {
+            "node": "Gravar chave",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comentar resolução": {
+      "main": [
+        [
+          {
+            "node": "Listar transições",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Listar transições": {
+      "main": [
+        [
+          {
+            "node": "Escolher transição",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Escolher transição": {
+      "main": [
+        [
+          {
+            "node": "Tem transição para concluído?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tem transição para concluído?": {
+      "main": [
+        [
+          {
+            "node": "Fechar chamado",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Marcar fechado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fechar chamado": {
+      "main": [
+        [
+          {
+            "node": "Marcar fechado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {},
+  "active": false,
+  "id": "fleetAuditJira01"
+}
