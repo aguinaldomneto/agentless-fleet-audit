@@ -1,0 +1,99 @@
+name: fleet-audit
+
+x-target: &target
+  restart: unless-stopped
+  volumes:
+    - ./lab/keys/collector.pub:/keys/collector.pub:ro
+  networks: [lab]
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE}
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?defina no .env}
+      N8N_DB_PASSWORD: ${N8N_DB_PASSWORD:?defina no .env}
+      INVENTORY_RW_PASSWORD: ${INVENTORY_RW_PASSWORD:?defina no .env}
+      GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD:?defina no .env}
+      LOAD_LAB_SEED: ${LOAD_LAB_SEED:-false}
+      TZ: ${TZ}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/00-init.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
+      - ./db/schema.sql:/schema/schema.sql:ro
+      - ./db/seed_lab.sql:/schema/seed_lab.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      retries: 10
+    networks: [lab]
+
+  n8n:
+    image: ${N8N_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:5678:5678"   # só localhost; nada exposto na rede
+    environment:
+      DB_TYPE: postgresdb
+      DB_POSTGRESDB_HOST: postgres
+      DB_POSTGRESDB_DATABASE: n8n
+      DB_POSTGRESDB_USER: n8n
+      DB_POSTGRESDB_PASSWORD: ${N8N_DB_PASSWORD}
+      N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY:?gere com openssl rand -hex 32}
+      GENERIC_TIMEZONE: ${TZ}
+      TZ: ${TZ}
+      N8N_SECURE_COOKIE: "false"          # lab em http://localhost
+      N8N_RESTRICT_FILE_ACCESS_TO: /collector
+    volumes:
+      - n8ndata:/home/node/.n8n
+      - ./collector:/collector:ro          # o workflow lê o collect.sh daqui
+    networks: [lab]
+
+  grafana:
+    image: ${GRAFANA_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina no .env}
+      GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD}
+      TZ: ${TZ}
+    volumes:
+      - grafanadata:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+    networks: [lab]
+
+  # --- servidores-alvo simulados (acesso só por chave, sem agente) ---------
+  target-debian:
+    <<: *target
+    build: { context: ./lab/target, dockerfile: Dockerfile.debian }
+    hostname: debian-01
+    environment: { CERT_DAYS: "20", FILL_DATA_MB: "58" }   # cert vencendo + /data em ~90%
+    tmpfs: ["/data:size=64m"]
+    ports: ["127.0.0.1:2221:22"]
+
+  target-rocky:
+    <<: *target
+    build: { context: ./lab/target, dockerfile: Dockerfile.rocky }
+    hostname: rocky-01
+    environment: { CERT_DAYS: "365" }
+    ports: ["127.0.0.1:2222:22"]
+
+  target-alpine:
+    <<: *target
+    build: { context: ./lab/target, dockerfile: Dockerfile.alpine }
+    hostname: alpine-01
+    environment: { CERT_DAYS: "5" }                        # cert crítico
+    ports: ["127.0.0.1:2223:22"]
+
+networks:
+  lab: {}
+
+volumes:
+  pgdata: {}
+  n8ndata: {}
+  grafanadata: {}

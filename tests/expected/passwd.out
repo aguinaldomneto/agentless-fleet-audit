@@ -1,0 +1,6 @@
+USER|root|0|0|/bin/bash|1
+USER|daemon|1|1|/usr/sbin/nologin|0
+USER|sync|4|65534|/bin/sync|0
+USER|oracle|1001|1001|/usr/bin/ksh|1
+USER|backdoor|0|0|/bin/sh|1
+USER|svc_app|1002|1002|/bin/false|0

@@ -1,0 +1,7 @@
+Filesystem          kbytes    used   avail %used Mounted on
+/dev/vg00/lvol3    1441792  425016 1007624   30% /
+/dev/vg00/lvol1    1835008  385232 1439376   21% /stand
+/dev/vg00/lvol8    8912896 7520024 1383432   84% /var
+/dev/vgdata01/lvol_oracle_data_prod
+                   52428800 49807360 2621440   95% /oracle/data
+/dev/vg00/lvol4     524288   21856  498640    4% /tmp

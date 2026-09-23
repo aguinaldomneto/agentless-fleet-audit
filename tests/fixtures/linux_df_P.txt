@@ -1,0 +1,7 @@
+Filesystem     1024-blocks     Used Available Capacity Mounted on
+overlay           61255492 18234512  39878676      32% /
+tmpfs                65536        0     65536       0% /dev
+shm                  65536        0     65536       0% /dev/shm
+tmpfs                65536    58368      7168      90% /data
+/dev/sda1         61255492 18234512  39878676      32% /etc/hosts
+/dev/sdb1        103081248 51540624  46281184      53% /srv/My Share

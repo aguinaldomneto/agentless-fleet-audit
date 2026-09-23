@@ -1,0 +1,35 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck (POSIX)
+        run: make lint
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shell: [dash, "bash --posix", "busybox sh"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: instalar shells
+        run: sudo apt-get update -q && sudo apt-get install -y -q dash busybox
+      - name: testes com ${{ matrix.shell }}
+        run: ${{ matrix.shell }} tests/run.sh
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: validar docker-compose.yml
+        run: |
+          cp .env.example .env
+          sed -i 's/^N8N_ENCRYPTION_KEY=$/N8N_ENCRYPTION_KEY=ci/' .env
+          touch lab/keys/collector.pub
+          docker compose config -q
