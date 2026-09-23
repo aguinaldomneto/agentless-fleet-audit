@@ -115,6 +115,17 @@ parse_swlist_bundle() {
         { print "SWBUNDLE|" $1 "|" $2 }'
 }
 
+# Descarta registros FS cujo ponto de montagem não é diretório. Bind mount de
+# arquivo (comum em containers: /etc/hosts, segredos, chaves) aparece no df com
+# os números do disco do host, mas não é um filesystem com capacidade própria.
+filter_dir_mounts() {
+    while IFS= read -r _l; do
+        _m=${_l#FS|}
+        _m=${_m%%|*}
+        if [ -d "$_m" ]; then printf '%s\n' "$_l"; fi
+    done
+}
+
 # --- seções de coleta --------------------------------------------------------
 
 collect_meta() {
@@ -143,7 +154,7 @@ collect_fs() {
     case $OS in
         HP-UX)
             if _o=$(bdf -l 2>/dev/null) && [ -n "$_o" ]; then
-                printf '%s\n' "$_o" | parse_bdf
+                printf '%s\n' "$_o" | parse_bdf | filter_dir_mounts
             else
                 err fs "bdf falhou"
             fi
@@ -151,9 +162,9 @@ collect_fs() {
         *)
             # busybox df não aceita -l: tenta com -l e cai para sem -l.
             if _o=$(df -P -k -l 2>/dev/null) && [ -n "$_o" ]; then
-                printf '%s\n' "$_o" | parse_df_posix
+                printf '%s\n' "$_o" | parse_df_posix | filter_dir_mounts
             elif _o=$(df -P -k 2>/dev/null) && [ -n "$_o" ]; then
-                printf '%s\n' "$_o" | parse_df_posix
+                printf '%s\n' "$_o" | parse_df_posix | filter_dir_mounts
             else
                 err fs "df falhou"
             fi

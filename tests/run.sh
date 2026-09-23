@@ -37,6 +37,11 @@ d')
 if [ "$got" = "X|a/b|c d" ]; then pass=$((pass + 1)); echo "ok   - emit sanitiza campos"
 else fail=$((fail + 1)); echo "FAIL - emit sanitiza campos: $got"; fi
 
+# bind mount de arquivo (ex.: /keys/collector.pub no container) deve ser descartado
+got=$(printf 'FS|/|10|5|5|50\nFS|/etc/passwd|10|5|5|50\nFS|/nao/existe|1|1|0|100\n' | filter_dir_mounts)
+if [ "$got" = "FS|/|10|5|5|50" ]; then pass=$((pass + 1)); echo "ok   - descarta montagem que não é diretório"
+else fail=$((fail + 1)); echo "FAIL - filter_dir_mounts: $got"; fi
+
 # smoke test: coleta real na máquina local
 COLLECT_LIB_ONLY=0 sh ./collector/collect.sh > "$tmp" 2>&1
 first=$(head -n 1 "$tmp" | cut -d'|' -f1)
