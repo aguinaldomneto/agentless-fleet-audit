@@ -20,8 +20,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./db/00-init.sh:/docker-entrypoint-initdb.d/00-init.sh:ro
-      - ./db/schema.sql:/schema/schema.sql:ro
-      - ./db/seed_lab.sql:/schema/seed_lab.sql:ro
+      - ./db:/schema:ro                     # migrations + seed (make migrate)
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -45,11 +44,24 @@ services:
       GENERIC_TIMEZONE: ${TZ}
       TZ: ${TZ}
       N8N_SECURE_COOKIE: "false"          # lab em http://localhost
-      N8N_RESTRICT_FILE_ACCESS_TO: /collector
     volumes:
       - n8ndata:/home/node/.n8n
-      - ./collector:/collector:ro          # o workflow lê o collect.sh daqui
+      - ./n8n/workflows:/workflows:ro      # make import-workflows
     networks: [lab]
+
+  # Único serviço com a chave SSH. O n8n pede a coleta por HTTP e nunca vê a chave.
+  collector-gateway:
+    build: ./gateway
+    restart: unless-stopped
+    user: "1000:1000"                      # dono da lab/keys/collector (chmod 600)
+    environment:
+      GATEWAY_TOKEN: ${GATEWAY_TOKEN:?gere com openssl rand -hex 24}
+      SSH_HOSTKEY_POLICY: accept-new
+    volumes:
+      - ./collector:/collector:ro
+      - ./lab/keys/collector:/keys/collector:ro
+      - gatewaystate:/state                # known_hosts (TOFU)
+    networks: [lab]                        # sem porta publicada
 
   grafana:
     image: ${GRAFANA_IMAGE}
@@ -97,3 +109,4 @@ volumes:
   pgdata: {}
   n8ndata: {}
   grafanadata: {}
+  gatewaystate: {}

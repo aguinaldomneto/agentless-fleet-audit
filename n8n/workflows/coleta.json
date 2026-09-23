@@ -1,0 +1,194 @@
+{
+  "name": "fleet-audit: coleta",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f2f56c57-85bf-59ac-a843-bb6e01343a29",
+      "name": "Executar agora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      },
+      "id": "d516154d-b064-5b5d-8b28-ba890844cb1c",
+      "name": "A cada 15 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, name, address, port, ssh_user, cert_paths\nFROM hosts\nWHERE enabled\nORDER BY id;",
+        "options": {}
+      },
+      "id": "c09517c6-be03-5f28-bca7-848e7f03d7fe",
+      "name": "Hosts ativos",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        100
+      ],
+      "notes": "Credencial: Postgres inventory_rw"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://collector-gateway:8080/collect",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ host_id: $json.id, address: $json.address, port: $json.port, user: $json.ssh_user, cert_paths: $json.cert_paths }) }}",
+        "options": {
+          "timeout": 120000
+        }
+      },
+      "id": "5429b90e-c6c3-545a-9624-0f011ee2d447",
+      "name": "Coletar via gateway",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        480,
+        100
+      ],
+      "onError": "continueRegularOutput",
+      "notes": "Credencial: Header Auth, nome X-Gateway-Token. Erro não para o fluxo: a falha é gravada no banco."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM ingest_collection($1::int, $2::text, $3::text);",
+        "options": {
+          "queryBatching": "independently",
+          "queryReplacement": "={{ [ $('Hosts ativos').item.json.id, $json.stdout ?? '', $json.error ? ($json.error.message || JSON.stringify($json.error)) : ($json.error_summary || '') ] }}"
+        }
+      },
+      "id": "69161c18-af62-5912-ae40-2ecbdb1ff0b8",
+      "name": "Gravar no inventário",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        100
+      ],
+      "notes": "Parâmetros como array: a saída do coletor tem vírgulas e quebraria a lista separada por vírgula."
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * *"
+            }
+          ]
+        }
+      },
+      "id": "3bd7c7a7-2b02-5a9b-b536-69525e8f1100",
+      "name": "Diário 03:00",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT purge_old_data('90 days');",
+        "options": {}
+      },
+      "id": "c2f1ffa6-1361-5f30-99aa-dfd4dabd4a02",
+      "name": "Retenção 90 dias",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        420
+      ]
+    }
+  ],
+  "connections": {
+    "Executar agora": {
+      "main": [
+        [
+          {
+            "node": "Hosts ativos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A cada 15 min": {
+      "main": [
+        [
+          {
+            "node": "Hosts ativos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hosts ativos": {
+      "main": [
+        [
+          {
+            "node": "Coletar via gateway",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Coletar via gateway": {
+      "main": [
+        [
+          {
+            "node": "Gravar no inventário",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Diário 03:00": {
+      "main": [
+        [
+          {
+            "node": "Retenção 90 dias",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {},
+  "active": false,
+  "id": "fleetAuditColeta"
+}

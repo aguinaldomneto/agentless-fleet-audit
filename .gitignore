@@ -1,3 +1,4 @@
 .env
 lab/keys/*
 !lab/keys/.gitkeep
+__pycache__/

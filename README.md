@@ -2,7 +2,7 @@
 
 Inventário e compliance **sem agente** para servidores Linux e Unix (incluindo HP-UX), orquestrado com **n8n**, armazenado em **PostgreSQL** e visualizado no **Grafana**.
 
-> Status: em construção. Coletor, laboratório e schema prontos; workflow n8n e dashboards em andamento.
+> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); notificações e dashboards em andamento.
 
 ## Problema
 
@@ -17,14 +17,14 @@ Em ambientes legados e híbridos é comum **não haver permissão para instalar 
 
 ```mermaid
 flowchart LR
-    S[n8n<br/>Schedule] --> H[(Postgres<br/>hosts)]
-    H --> X[SSH: envia collect.sh<br/>via stdin]
-    X --> T1[Linux]
-    X --> T2[HP-UX]
-    T1 & T2 -->|registros TIPO pipe campos| P[Parse + upsert]
-    P --> DB[(Postgres<br/>inventory)]
-    P --> R{Regras}
-    R -->|achado novo| A[Telegram]
+    N[n8n<br/>agenda e orquestra] -->|1. lista hosts| DB[(Postgres<br/>inventory)]
+    N -->|2. POST /collect + token| GW[collector-gateway<br/>única peça com a chave SSH]
+    GW -->|3. ssh 'sh -s' < collect.sh| T1[Linux]
+    GW --> T2[HP-UX]
+    GW -->|4. saída bruta| N
+    N -->|5. ingest_collection| DB
+    DB -->|regras + dedup| F[findings]
+    F -.->|em andamento| A[Telegram]
     DB --> G[Grafana]
 ```
 
@@ -39,15 +39,23 @@ flowchart LR
 | **`df -l` / `bdf -l`** | Só FS locais: um NFS *stale* travaria a coleta indefinidamente. |
 | **Postgres, não Prometheus** | A maior parte dos dados é *estado* (usuários, certificados, patches), não métrica numérica de alta frequência. |
 | **Tabela `findings` com índice único parcial** | Um achado aberto por (host, regra, objeto) → **sem alerta repetido** a cada coleta. |
+| **Gateway separado com a chave SSH** | O n8n nunca tem a chave. Se ele for comprometido, não vira um trampolim de SSH para a frota. Entrada validada contra injeção de opções do ssh. |
+| **Ingestão numa função SQL** | Parse e regras rodam em **uma transação**: nada fica gravado pela metade. A saída bruta fica em `collection_runs` para auditoria e reprocessamento. |
+| **Só coleta completa "apaga" ou resolve** | Saída truncada nunca remove usuário/certificado do inventário nem fecha alerta. Ausência de dado não é prova de que o problema sumiu. |
+| **`StrictHostKeyChecking=accept-new`** | Confia na primeira conexão e depois exige a mesma chave de host. Chave mudou (reinstalação ou MITM) = coleta falha e vira alerta crítico. |
+| **Alerta de recuperação** | Achado resolvido gera aviso de "resolved", mas só se o alerta original chegou a ser enviado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
 
 ## Estrutura
 
 ```
 collector/collect.sh     coletor POSIX (Linux + HP-UX)
+gateway/                 serviço HTTP que executa o coletor via SSH (Python stdlib)
+n8n/workflows/           workflows versionados (importados com make import-workflows)
 tests/                   testes dos parsers com fixtures (inclui bdf com linha quebrada)
+tests/sql/               testes da ingestão, regras, dedup e escalada
 lab/target/              imagens dos servidores-alvo simulados (Debian, Rocky, Alpine/busybox)
-db/                      init, schema e seed do Postgres
+db/                      init, migrations versionadas e seed do Postgres
 grafana/provisioning/    datasource provisionado
 docker-compose.yml       laboratório completo
 ```
@@ -57,11 +65,14 @@ docker-compose.yml       laboratório completo
 Requisitos: Docker + Compose (Linux ou WSL2), `make`, `ssh`.
 
 ```sh
-cp .env.example .env          # edite as senhas e gere N8N_ENCRYPTION_KEY
-make up                       # gera chaves e sobe tudo
-make collect-debian           # coleta manual, sem n8n, para validar
-make test                     # testes do coletor
+make up                       # gera .env com segredos aleatórios, chaves SSH e sobe tudo
+make collect-debian           # coleta manual, sem n8n, para validar SSH + coletor
+make import-workflows         # importa o workflow de coleta no n8n
+make test                     # testes do coletor e do gateway
+make test-sql                 # testes da ingestão no banco em execução
 ```
+
+No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) e **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`).
 
 - n8n: http://localhost:5678
 - Grafana: http://localhost:3000
@@ -78,7 +89,9 @@ O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` t
 
 - [x] Coletor POSIX + testes + CI (shellcheck, dash, bash, busybox)
 - [x] Laboratório Docker Compose + schema com privilégio mínimo
-- [ ] Workflow n8n (coleta, parse, upsert, regras, Telegram)
+- [x] Gateway SSH + workflow n8n de coleta + ingestão transacional
+- [x] Regras (disco, certificado, UID 0, falha de coleta) com dedup, escalada e recuperação
+- [ ] Notificação no Telegram
 - [ ] Dashboards Grafana provisionados
 - [ ] Workflows versionados e importados via CI
 - [ ] Terraform: mesmo stack em VM na nuvem
