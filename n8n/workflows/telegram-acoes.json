@@ -1,0 +1,88 @@
+{
+  "name": "fleet-audit: ações do Telegram",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "fleet-audit-telegram",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "1eda831a-82ea-5a22-843f-70d7c5c68db5",
+      "name": "Clique no Telegram",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "webhookId": "6f984b33-75c6-53d9-a0ac-a85fc265215a",
+      "notes": "Chamado só pelo telegram-bridge, pela rede interna. Credencial: Header Auth X-Bridge-Token."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM telegram_action($1::text, $2::text, $3::text);",
+        "options": {
+          "queryReplacement": "={{ [ String($json.body.chat_id ?? ''), String($json.body.data ?? ''), String($json.body.from_name ?? '') ] }}"
+        }
+      },
+      "id": "50cefec2-99b0-50b4-bcc1-5aab08d2deec",
+      "name": "Registrar ação",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        0
+      ],
+      "notes": "Valida o chat autorizado e o formato da ação no banco (telegram_action)."
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ ok: $json.ok, message: $json.message }) }}",
+        "options": {}
+      },
+      "id": "0c269c1a-8b96-5e76-be33-ce904196c074",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        0
+      ]
+    }
+  ],
+  "connections": {
+    "Clique no Telegram": {
+      "main": [
+        [
+          {
+            "node": "Registrar ação",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar ação": {
+      "main": [
+        [
+          {
+            "node": "Responder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {},
+  "active": false,
+  "id": "fleetAuditTgAcao"
+}

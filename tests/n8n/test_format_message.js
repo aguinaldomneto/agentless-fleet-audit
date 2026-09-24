@@ -48,10 +48,32 @@ t('evento resolvido mostra resolução e duração', () => {
 t('uma mensagem por evento, abertos críticos primeiro e resolvidos por último', () => {
   const out = run([
     row({ id: 1, state: 'resolved', resolved_at: '2026-09-24T00:00:00Z' }),
-    row({ id: 2, severity: 'warning' }),
+    row({ id: 2, severity: 'high' }),
     row({ id: 3, severity: 'critical' }),
   ]);
   assert.deepStrictEqual(out.map((o) => o.json.ids[0]), [3, 2, 1]);
+  const mix = run([row({ id: 5, state: 'reminder' }), row({ id: 6, severity: 'medium' })]);
+  assert.deepStrictEqual(mix.map((o) => o.json.ids[0]), [6, 5], 'novo antes de lembrete');
+});
+
+t('lembrete: título, número do lembrete e tempo aberto', () => {
+  const [out] = run([row({ state: 'reminder', reminder_number: 3, first_seen: new Date(Date.now() - 125 * 60000).toISOString() })]);
+  const txt = out.json.text;
+  assert.match(txt, /^🔴 <b>LEMBRETE: EVENTO AINDA ABERTO<\/b>/);
+  assert.match(txt, /lembrete nº 3/);
+  assert.match(txt, /Aberto há:<\/b> 2h 5min/);
+});
+
+t('botões só em evento aberto, com o id do evento', () => {
+  const [a] = run([row({ id: 13 })]);
+  assert.deepStrictEqual(a.json.buttons[0].map((b) => b.data), ['ack:13', 'sil:13:240']);
+  const [r] = run([row({ state: 'resolved', resolved_at: '2026-09-24T00:00:00Z' })]);
+  assert.deepStrictEqual(r.json.buttons, []);
+});
+
+t('severidades alta e média', () => {
+  assert.match(run([row({ severity: 'high' })])[0].json.text, /🟠 <b>EVENTO ABERTO[\s\S]*ALTA/);
+  assert.match(run([row({ severity: 'medium' })])[0].json.text, /🟡 <b>EVENTO ABERTO[\s\S]*MÉDIA/);
 });
 
 t('host sem address separado não duplica o nome', () => {

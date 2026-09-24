@@ -10,7 +10,7 @@ BEGIN
     INSERT INTO findings (host_id, rule, severity, subject, detail)
     VALUES (h, 'cert_expiry', 'critical', '/c.crt', 'vence') RETURNING id INTO fid;
     INSERT INTO findings (host_id, rule, severity, subject, detail)
-    VALUES (h, 'fs_usage', 'warning', '/data', '86%');
+    VALUES (h, 'fs_usage', 'high', '/data', '86%');
 
     -- sem configuração: fila vazia (integração desligada)
     ASSERT NOT EXISTS (SELECT 1 FROM v_jira_queue WHERE host = 'j-01'), 'fila deveria estar vazia sem config';
@@ -18,7 +18,7 @@ BEGIN
     INSERT INTO settings (key, value) VALUES ('jira_base_url', 'https://x.atlassian.net'), ('jira_project', 'OPS')
     ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
 
-    -- só o crítico entra para abertura; warning não abre chamado
+    -- só o crítico entra para abertura; alta não abre chamado
     SELECT count(*) INTO n FROM v_jira_queue WHERE host = 'j-01';
     ASSERT n = 1, 'esperado 1 item, veio ' || n;
     ASSERT (SELECT action || '/' || issue_type FROM v_jira_queue WHERE id = fid) = 'open/Task', 'ação/tipo';

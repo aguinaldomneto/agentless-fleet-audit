@@ -1,10 +1,10 @@
 # Atalhos do laboratório. Requer: docker compose, ssh, openssl.
 SSH_OPTS = -i lab/keys/collector -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
 SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PASSWORD \
-           GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN
+           GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN BRIDGE_TOKEN
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint \
-        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n
+        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -37,11 +37,14 @@ import-workflow: ## importa um só: make import-workflow WF=jira
 forget-hostkeys: ## após recriar os alvos (chave de host nova)
 	docker compose exec collector-gateway rm -f /state/known_hosts
 
-test: test-gateway test-n8n ## testes do coletor, gateway e Code nodes (sem Docker)
+test: test-gateway test-bridge test-n8n ## testes do coletor, gateway, bridge e Code nodes (sem Docker)
 	sh tests/run.sh
 
 test-gateway:
 	cd gateway && python3 -m unittest -q
+
+test-bridge:
+	cd telegram-bridge && python3 -m unittest -q
 
 test-n8n:
 	node tests/n8n/test_format_message.js
@@ -57,6 +60,14 @@ set-chat-id:     ## grava o chat_id do Telegram no banco: make set-chat-id CHAT_
 test-sql:        ## testes da ingestão e do Jira no Postgres em execução
 	for t in tests/sql/test_*.sql; do \
 	  docker compose exec -T postgres psql -U inventory_rw -d inventory -X -v ON_ERROR_STOP=1 -f - < $$t || exit 1; done
+
+set-reminders:   ## intervalos de lembrete em minutos: make set-reminders CRITICAL=60 HIGH=180 MEDIUM=480
+	@for v in "$(or $(CRITICAL),60)" "$(or $(HIGH),180)" "$(or $(MEDIUM),480)"; do \
+	  case "$$v" in ''|*[!0-9]*) echo "valores devem ser minutos (inteiros)"; exit 1;; esac; done
+	@printf "%s\n" \
+	  "INSERT INTO settings (key, value) VALUES ('remind_minutes_critical', '$(or $(CRITICAL),60)'), ('remind_minutes_high', '$(or $(HIGH),180)'), ('remind_minutes_medium', '$(or $(MEDIUM),480)')" \
+	  "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();" | \
+	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 && echo "lembretes configurados"
 
 set-jira:        ## make set-jira BASE_URL=https://x.atlassian.net PROJECT=OPS [ISSUE_TYPE=Incident]
 	@echo "$(BASE_URL)" | grep -Eq '^https://[A-Za-z0-9.-]+$$' || { echo "BASE_URL inválida (ex.: https://seu-site.atlassian.net)"; exit 1; }

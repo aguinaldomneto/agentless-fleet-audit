@@ -27,14 +27,25 @@ flowchart LR
     N -->|5. ingest_collection| DB
     DB -->|regras + dedup| F[findings]
     F -->|6. pendências| N
-    N -->|7. só marca enviado se o Telegram aceitou| A[Telegram]
+    N -->|7. POST /send| TB[telegram-bridge<br/>única peça com o token do bot]
+    TB --> A[Telegram]
+    A -.->|botões: reconhecer / silenciar<br/>long polling| TB
+    TB -.->|webhook interno| N
     F -->|crítico: abre / resolvido: comenta e fecha| J[Jira]
     DB --> G[Grafana]
 ```
 
 ## Alertas
 
-Um evento por mensagem, no formato de chamado. Recuperação é avisada com data de resolução e duração; alerta aberto não se repete a cada coleta.
+Um evento por mensagem, no formato de chamado, com três severidades e **lembrete enquanto o evento estiver aberto**:
+
+| Severidade | Exemplos | Lembrete |
+|---|---|---|
+| 🔴 CRÍTICA | disco ≥ 90%, certificado ≤ 7 dias, UID 0 extra, falha de SSH | a cada 1 h |
+| 🟠 ALTA | disco ≥ 85%, certificado ≤ 15 dias, coleta truncada | a cada 3 h |
+| 🟡 MÉDIA | certificado ≤ 30 dias | a cada 8 h |
+
+Cada alerta aberto vem com os botões **✅ Reconhecer** (pausa os lembretes até resolver) e **🔕 Silenciar 4h**. Se a severidade **subir**, o reconhecimento é desfeito e um novo alerta sai. Recuperação é sempre avisada, com data de resolução e duração. Intervalos ajustáveis com `make set-reminders`.
 
 <p align="center"><img src="docs/img/alerta-telegram.jpeg" alt="Alertas de evento aberto e resolvido no Telegram" width="380"></p>
 
@@ -57,6 +68,8 @@ Um evento por mensagem, no formato de chamado. Recuperação é avisada com data
 | **Configuração de ambiente no banco** | `chat_id` do Telegram fica na tabela `settings`: o workflow versionado é o mesmo em qualquer ambiente e o repositório público não expõe dados pessoais. |
 | **CI enxuto e reprodutível** | Runner e actions fixados em versão, timeout por job, execução anterior cancelada a cada push e o teste "busybox" roda num Alpine de verdade (shell **e** ferramentas). |
 | **Dashboard como código** | JSON versionado, provisionado na subida, edição pela tela bloqueada (`allowUiUpdates: false`). Grafana lê com usuário somente leitura. |
+| **Botões sem URL pública** | O `telegram-bridge` busca os cliques por *long polling* (`getUpdates`) e repassa ao webhook **interno** do n8n. Nada do laboratório fica exposto na internet. A ação é validada no banco: só o chat configurado pode reconhecer ou silenciar. |
+| **Token do bot isolado** | Mesmo padrão do gateway SSH: o token do Telegram fica só no `telegram-bridge`; o n8n fala com ele pela rede interna com um token próprio. |
 | **Jira num workflow separado** | Chamado só para evento crítico; resolução comenta duração e move para a primeira transição de categoria *done* (funciona com qualquer fluxo de projeto). Jira fora do ar não afeta o Telegram, e vice-versa. |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
@@ -66,10 +79,11 @@ Um evento por mensagem, no formato de chamado. Recuperação é avisada com data
 ```
 collector/collect.sh     coletor POSIX (Linux + HP-UX)
 gateway/                 serviço HTTP que executa o coletor via SSH (Python stdlib)
+telegram-bridge/         envio de mensagens e cliques nos botões do Telegram (Python stdlib)
 n8n/workflows/           workflows versionados (importados com make import-workflows)
 n8n/code/                código dos Code nodes, testado fora do n8n (sync_code.py embute no JSON)
 tests/                   testes dos parsers com fixtures (inclui bdf com linha quebrada)
-tests/sql/               testes da ingestão, regras, dedup, escalada e fila do Jira
+tests/sql/               testes da ingestão, regras, dedup, escalada, lembretes, ack e fila do Jira
 lab/target/              imagens dos servidores-alvo simulados (Debian, Rocky, Alpine/busybox)
 db/                      init, migrations versionadas e seed do Postgres
 grafana/provisioning/    datasource e provider de dashboards
@@ -92,7 +106,7 @@ make set-jira BASE_URL=https://x.atlassian.net PROJECT=OPS ISSUE_TYPE=Task   # o
 make import-workflow WF=jira  # importa só um workflow
 ```
 
-No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) **Telegram** (token do bot) e, para o Jira, **Basic Auth** (e-mail da conta Atlassian + API token).
+No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) **Header Auth** para o bridge (nome `X-Bridge-Token`, valor = `BRIDGE_TOKEN` do `.env`; o token do bot vai só no `.env`, em `TELEGRAM_BOT_TOKEN`) e, para o Jira, **Basic Auth** (e-mail da conta Atlassian + API token).
 
 - n8n: http://localhost:5678
 - Grafana: http://localhost:3000 (usuário `admin`, senha `GRAFANA_ADMIN_PASSWORD` do `.env`); o dashboard abre direto na home
@@ -114,5 +128,6 @@ O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` t
 - [x] Notificação no Telegram (reenvio automático se o envio falhar)
 - [x] Dashboard Grafana provisionado (eventos, hosts, disco, certificados, taxa de coleta, MTTR)
 - [x] Chamado no Jira: abre em evento crítico, comenta e fecha na resolução
+- [x] Três severidades com lembrete recorrente (1h/3h/8h) e botões Reconhecer/Silenciar no Telegram
 - [ ] Workflows versionados e importados via CI
 - [ ] Terraform: mesmo stack em VM na nuvem

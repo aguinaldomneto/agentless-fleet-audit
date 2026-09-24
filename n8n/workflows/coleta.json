@@ -129,7 +129,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT p.id, p.host, h.address, p.rule, p.severity, p.subject, p.detail,\n       p.state, p.first_seen, p.resolved_at,\n       (SELECT value FROM settings WHERE key = 'telegram_chat_id') AS chat_id\nFROM v_pending_notifications p\nJOIN hosts h ON h.name = p.host\nORDER BY p.id;",
+        "query": "SELECT p.id, p.host, h.address, p.rule, p.severity, p.subject, p.detail,\n       p.state, p.first_seen, p.resolved_at, p.reminder_number,\n       (SELECT value FROM settings WHERE key = 'telegram_chat_id') AS chat_id\nFROM v_pending_notifications p\nJOIN hosts h ON h.name = p.host\nORDER BY p.id;",
         "options": {}
       },
       "id": "1d6e89c7-7cfa-5984-81e7-9fa042a2bab4",
@@ -141,11 +141,11 @@
         100
       ],
       "executeOnce": true,
-      "notes": "Roda uma vez por execução (não uma por host)."
+      "notes": "Novos, lembretes (1h/3h/8h por severidade) e recuperações. Roda uma vez por execução."
     },
     {
       "parameters": {
-        "jsCode": "// Nó \"Montar mensagem\" (Code, Run Once for All Items).\n// Entrada: linhas de v_pending_notifications (+ address, chat_id).\n// Saída: 1 item por evento { chat_id, text, ids: [id] } — uma mensagem por evento,\n// no formato de chamado. Nenhum item = nada a enviar.\n// Fonte da verdade deste código: n8n/code/format_message.js (testado em tests/n8n).\nconst MAX_PER_RUN = 20; // evita rajada no Telegram; o excedente sai na próxima execução\nconst TZ = 'America/Sao_Paulo';\n\nconst RULE = {\n  cert_expiry: 'Certificado próximo do vencimento',\n  fs_usage: 'Uso de filesystem acima do limite',\n  uid0_extra: 'Conta com UID 0 além do root',\n  collection_failed: 'Falha na coleta (SSH)',\n};\nconst SEV = {\n  critical: { icon: '🔴', label: 'CRÍTICA' },\n  warning: { icon: '🟡', label: 'ATENÇÃO' },\n  info: { icon: '🔵', label: 'INFORMATIVA' },\n};\nconst ORDER = { critical: 0, warning: 1, info: 2 };\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst fmtDate = (v) => {\n  if (!v) return '-';\n  const d = new Date(v);\n  if (isNaN(d)) return esc(v);\n  return new Intl.DateTimeFormat('pt-BR', {\n    timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric',\n    hour: '2-digit', minute: '2-digit', second: '2-digit',\n  }).format(d).replace(',', '');\n};\nconst fmtDuration = (from, to) => {\n  const min = Math.max(0, Math.round((new Date(to) - new Date(from)) / 60000));\n  const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;\n  return [d && `${d}d`, h && `${h}h`, `${m}min`].filter(Boolean).join(' ');\n};\n\nfunction render(r) {\n  const sev = SEV[r.severity] || { icon: '⚪', label: String(r.severity).toUpperCase() };\n  const open = r.state !== 'resolved';\n  const host = r.address && r.address !== r.host ? `${esc(r.host)} (${esc(r.address)})` : esc(r.host);\n  const lines = [\n    open ? `${sev.icon} <b>EVENTO ABERTO</b>` : '✅ <b>EVENTO RESOLVIDO</b>',\n    '━━━━━━━━━━━━━━━━━━',\n    `🚨 <b>Severidade:</b> ${sev.label}`,\n    `📌 <b>Status:</b> ${open ? 'ATIVO (aguardando ação)' : 'NORMALIZADO'}`,\n    `🖥️ <b>Host:</b> ${host}`,\n    `⚠️ <b>Alerta:</b> ${esc(RULE[r.rule] || r.rule)}`,\n    `📄 <b>Objeto:</b> <code>${esc(r.subject)}</code>`,\n    `📝 <b>${open ? 'Detalhe' : 'Último estado'}:</b> ${esc(r.detail)}`,\n    `🕒 <b>Data de criação:</b> ${fmtDate(r.first_seen)}`,\n  ];\n  if (!open) {\n    lines.push(`🏁 <b>Data de resolução:</b> ${fmtDate(r.resolved_at)}`);\n    lines.push(`⏱️ <b>Duração:</b> ${fmtDuration(r.first_seen, r.resolved_at)}`);\n  }\n  lines.push(`🔖 <i>evento #${r.id} · fleet-audit</i>`);\n  return lines.join('\\n');\n}\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r.id != null);\nif (rows.length === 0) return [];\n\nconst chatId = rows[0].chat_id;\nif (!chatId) {\n  throw new Error(\"chat_id do Telegram não configurado. Rode: make set-chat-id CHAT_ID=<id>\");\n}\n\n// Abertos primeiro (críticos antes), recuperações por último.\nrows.sort((a, b) =>\n  (a.state === 'resolved') - (b.state === 'resolved') ||\n  (ORDER[a.severity] ?? 9) - (ORDER[b.severity] ?? 9) ||\n  String(a.host).localeCompare(String(b.host)) || a.id - b.id);\n\nreturn rows.slice(0, MAX_PER_RUN).map((r) => ({\n  json: { chat_id: String(chatId), text: render(r), ids: [r.id] },\n}));\n"
+        "jsCode": "// Nó \"Montar mensagem\" (Code, Run Once for All Items).\n// Entrada: linhas de v_pending_notifications (+ address, chat_id).\n// Saída: 1 item por evento { chat_id, text, ids: [id], buttons } — uma mensagem por\n// evento, no formato de chamado. Eventos abertos levam botões Reconhecer/Silenciar.\n// Nenhum item = nada a enviar.\n// Fonte da verdade deste código: n8n/code/format_message.js (testado em tests/n8n).\nconst MAX_PER_RUN = 20; // evita rajada no Telegram; o excedente sai na próxima execução\nconst TZ = 'America/Sao_Paulo';\n\nconst RULE = {\n  cert_expiry: 'Certificado próximo do vencimento',\n  fs_usage: 'Uso de filesystem acima do limite',\n  uid0_extra: 'Conta com UID 0 além do root',\n  collection_failed: 'Falha na coleta (SSH)',\n};\nconst SEV = {\n  critical: { icon: '🔴', label: 'CRÍTICA' },\n  high: { icon: '🟠', label: 'ALTA' },\n  medium: { icon: '🟡', label: 'MÉDIA' },\n  warning: { icon: '🟠', label: 'ALTA' },   // legado\n  info: { icon: '🟡', label: 'MÉDIA' },     // legado\n};\nconst ORDER = { critical: 0, high: 1, warning: 1, medium: 2, info: 2 };\nconst STATE = { firing: 0, reminder: 1, resolved: 2 };\nconst SILENCE_MIN = 240;\n\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst fmtDate = (v) => {\n  if (!v) return '-';\n  const d = new Date(v);\n  if (isNaN(d)) return esc(v);\n  return new Intl.DateTimeFormat('pt-BR', {\n    timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric',\n    hour: '2-digit', minute: '2-digit', second: '2-digit',\n  }).format(d).replace(',', '');\n};\nconst fmtDuration = (from, to) => {\n  const min = Math.max(0, Math.round((new Date(to) - new Date(from)) / 60000));\n  const d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;\n  return [d && `${d}d`, h && `${h}h`, `${m}min`].filter(Boolean).join(' ');\n};\n\nfunction render(r, now) {\n  const sev = SEV[r.severity] || { icon: '⚪', label: String(r.severity).toUpperCase() };\n  const open = r.state !== 'resolved';\n  const reminder = r.state === 'reminder';\n  const host = r.address && r.address !== r.host ? `${esc(r.host)} (${esc(r.address)})` : esc(r.host);\n  const title = reminder ? `${sev.icon} <b>LEMBRETE: EVENTO AINDA ABERTO</b>`\n    : open ? `${sev.icon} <b>EVENTO ABERTO</b>` : '✅ <b>EVENTO RESOLVIDO</b>';\n  const status = reminder ? `ATIVO (lembrete nº ${r.reminder_number || 1})`\n    : open ? 'ATIVO (aguardando ação)' : 'NORMALIZADO';\n  const lines = [\n    title,\n    '━━━━━━━━━━━━━━━━━━',\n    `🚨 <b>Severidade:</b> ${sev.label}`,\n    `📌 <b>Status:</b> ${status}`,\n    `🖥️ <b>Host:</b> ${host}`,\n    `⚠️ <b>Alerta:</b> ${esc(RULE[r.rule] || r.rule)}`,\n    `📄 <b>Objeto:</b> <code>${esc(r.subject)}</code>`,\n    `📝 <b>${open ? 'Detalhe' : 'Último estado'}:</b> ${esc(r.detail)}`,\n    `🕒 <b>Data de criação:</b> ${fmtDate(r.first_seen)}`,\n  ];\n  if (reminder) lines.push(`⏳ <b>Aberto há:</b> ${fmtDuration(r.first_seen, now)}`);\n  if (!open) {\n    lines.push(`🏁 <b>Data de resolução:</b> ${fmtDate(r.resolved_at)}`);\n    lines.push(`⏱️ <b>Duração:</b> ${fmtDuration(r.first_seen, r.resolved_at)}`);\n  }\n  lines.push(`🔖 <i>evento #${r.id} · fleet-audit</i>`);\n  return lines.join('\\n');\n}\n\nconst rows = $input.all().map((i) => i.json).filter((r) => r.id != null);\nif (rows.length === 0) return [];\n\nconst chatId = rows[0].chat_id;\nif (!chatId) {\n  throw new Error(\"chat_id do Telegram não configurado. Rode: make set-chat-id CHAT_ID=<id>\");\n}\n\n// Novos primeiro, depois lembretes, recuperações por último; críticos antes.\nrows.sort((a, b) =>\n  (STATE[a.state] ?? 9) - (STATE[b.state] ?? 9) ||\n  (ORDER[a.severity] ?? 9) - (ORDER[b.severity] ?? 9) ||\n  String(a.host).localeCompare(String(b.host)) || a.id - b.id);\n\nconst now = new Date();\nreturn rows.slice(0, MAX_PER_RUN).map((r) => ({\n  json: {\n    chat_id: String(chatId),\n    text: render(r, now),\n    ids: [r.id],\n    // botões só em evento aberto; o callback volta pelo telegram-bridge\n    buttons: r.state === 'resolved' ? [] : [[\n      { text: '✅ Reconhecer', data: `ack:${r.id}` },\n      { text: '🔕 Silenciar 4h', data: `sil:${r.id}:${SILENCE_MIN}` },\n    ]],\n  },\n}));\n"
       },
       "id": "2e7d9e57-e62f-51b4-acc2-d9ff49ce3a71",
       "name": "Montar mensagem",
@@ -159,21 +159,26 @@
     },
     {
       "parameters": {
-        "chatId": "={{ $json.chat_id }}",
-        "text": "={{ $json.text }}",
-        "additionalFields": {
-          "appendAttribution": false,
-          "parse_mode": "HTML"
+        "method": "POST",
+        "url": "http://telegram-bridge:8081/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: $json.text, buttons: $json.buttons }) }}",
+        "options": {
+          "timeout": 30000
         }
       },
       "id": "8de93fba-d18c-5009-a3b4-694bf0d8256e",
       "name": "Enviar Telegram",
-      "type": "n8n-nodes-base.telegram",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
       "position": [
         1440,
         100
-      ]
+      ],
+      "notes": "Via telegram-bridge (única peça com o token do bot). Credencial: Header Auth X-Bridge-Token."
     },
     {
       "parameters": {

@@ -224,7 +224,7 @@
     {
       "id": 5,
       "type": "stat",
-      "title": "Eventos de atenção abertos",
+      "title": "Eventos alta / média abertos",
       "description": "",
       "datasource": {
         "type": "grafana-postgresql-datasource",
@@ -246,7 +246,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT count(*) FROM findings WHERE resolved_at IS NULL AND severity = 'warning'"
+          "rawSql": "SELECT count(*) FROM findings WHERE resolved_at IS NULL AND severity IN ('high', 'medium')"
         }
       ],
       "fieldConfig": {
@@ -259,7 +259,7 @@
                 "value": null
               },
               {
-                "color": "yellow",
+                "color": "orange",
                 "value": 1
               }
             ]
@@ -434,7 +434,7 @@
           "editorMode": "code",
           "format": "table",
           "rawQuery": true,
-          "rawSql": "SELECT f.id AS \"Evento\",\n       CASE f.severity WHEN 'critical' THEN 'CRÍTICA' WHEN 'warning' THEN 'ATENÇÃO' ELSE 'INFO' END AS \"Severidade\",\n       h.name AS \"Host\", f.rule AS \"Regra\", f.subject AS \"Objeto\", f.detail AS \"Detalhe\",\n       f.first_seen AS \"Aberto em\",\n       extract(epoch FROM now() - f.first_seen) AS \"Aberto há\",\n       CASE WHEN f.notified_at IS NULL THEN 'pendente' ELSE 'enviado' END AS \"Notificação\",\n       f.jira_key AS \"Chamado\",\n       (SELECT value FROM settings WHERE key = 'jira_base_url') || '/browse/' || f.jira_key AS jira_url\nFROM findings f JOIN hosts h ON h.id = f.host_id\nWHERE f.resolved_at IS NULL\nORDER BY (f.severity = 'critical') DESC, f.first_seen"
+          "rawSql": "SELECT f.id AS \"Evento\",\n       CASE f.severity WHEN 'critical' THEN 'CRÍTICA' WHEN 'high' THEN 'ALTA' ELSE 'MÉDIA' END AS \"Severidade\",\n       h.name AS \"Host\", f.rule AS \"Regra\", f.subject AS \"Objeto\", f.detail AS \"Detalhe\",\n       f.first_seen AS \"Aberto em\",\n       extract(epoch FROM now() - f.first_seen) AS \"Aberto há\",\n       CASE WHEN f.acked_at IS NOT NULL THEN 'reconhecido por ' || f.acked_by\n            WHEN f.silenced_until > now() THEN 'silenciado até ' || to_char(f.silenced_until AT TIME ZONE 'America/Sao_Paulo', 'DD/MM HH24:MI')\n            WHEN f.notified_at IS NULL THEN 'aviso pendente'\n            ELSE 'avisado (' || f.reminder_count || ' lembrete(s))' END AS \"Tratamento\",\n       f.jira_key AS \"Chamado\",\n       (SELECT value FROM settings WHERE key = 'jira_base_url') || '/browse/' || f.jira_key AS jira_url\nFROM findings f JOIN hosts h ON h.id = f.host_id\nWHERE f.resolved_at IS NULL\nORDER BY sev_rank(f.severity) DESC, f.first_seen"
         }
       ],
       "fieldConfig": {
@@ -463,12 +463,12 @@
                         "color": "red",
                         "index": 0
                       },
-                      "ATENÇÃO": {
-                        "color": "yellow",
+                      "ALTA": {
+                        "color": "orange",
                         "index": 1
                       },
-                      "INFO": {
-                        "color": "blue",
+                      "MÉDIA": {
+                        "color": "yellow",
                         "index": 2
                       }
                     }

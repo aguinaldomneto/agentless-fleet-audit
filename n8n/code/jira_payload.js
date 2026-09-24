@@ -9,7 +9,7 @@ const RULE = {
   uid0_extra: 'Conta com UID 0 além do root',
   collection_failed: 'Falha na coleta (SSH)',
 };
-const SEV = { critical: 'CRÍTICA', warning: 'ATENÇÃO', info: 'INFORMATIVA' };
+const SEV = { critical: 'CRÍTICA', high: 'ALTA', medium: 'MÉDIA', warning: 'ALTA', info: 'MÉDIA' };
 
 const fmtDate = (v) => v ? new Intl.DateTimeFormat('pt-BR', {
   timeZone: TZ, day: '2-digit', month: '2-digit', year: 'numeric',

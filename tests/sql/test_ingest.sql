@@ -47,7 +47,7 @@ BEGIN
     SELECT * INTO r FROM ingest_collection(h, pg_temp.raw(90, 20, true, true));
     ASSERT r.run_status = 'ok', 'status deveria ser ok: ' || r.run_status;
     got := pg_temp.open_findings();
-    ASSERT got = 'cert_expiry:/opt/app/certs/app.crt:warning, fs_usage:/data:critical, uid0_extra:backdoor:critical', '1: ' || got;
+    ASSERT got = 'cert_expiry:/opt/app/certs/app.crt:medium, fs_usage:/data:critical, uid0_extra:backdoor:critical', '1: ' || got;
     ASSERT (SELECT pkg_count FROM host_facts WHERE host_id = h) = 123, '1: pkg_count';
     ASSERT (SELECT error FROM collection_runs WHERE id = r.run_id) LIKE '%caminho inexistente%', '1: ERR registrado';
     ASSERT (SELECT days_left FROM v_cert_expiry WHERE host = 't-01') = 20, '1: days_left';
@@ -76,7 +76,7 @@ BEGIN
     PERFORM ingest_collection(h, pg_temp.raw(50, 5, false, false));
     ASSERT (SELECT status FROM collection_runs WHERE host_id = h ORDER BY id DESC LIMIT 1) = 'partial', '4: status';
     got := pg_temp.open_findings();
-    ASSERT got = 'cert_expiry:/opt/app/certs/app.crt:critical, collection_failed:ssh:warning', '4: ' || got;
+    ASSERT got = 'cert_expiry:/opt/app/certs/app.crt:critical, collection_failed:ssh:high', '4: ' || got;
     RAISE NOTICE 'ok - saída truncada vira partial + achado de coleta';
 
     -- 5. SSH falhou (saída vazia): coleta falhou escala para critical

@@ -63,6 +63,17 @@ services:
       - gatewaystate:/state                # known_hosts (TOFU)
     networks: [lab]                        # sem porta publicada
 
+  # Única peça com o token do bot. Envia as mensagens do n8n e traz os cliques
+  # nos botões (long polling: não precisa de URL pública nem webhook exposto).
+  telegram-bridge:
+    build: ./telegram-bridge
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?token do bot (BotFather)}
+      BRIDGE_TOKEN: ${BRIDGE_TOKEN:?gere com openssl rand -hex 24}
+      N8N_ACTION_URL: http://n8n:5678/webhook/fleet-audit-telegram
+    networks: [lab]                        # sem porta publicada
+
   grafana:
     image: ${GRAFANA_IMAGE}
     restart: unless-stopped
