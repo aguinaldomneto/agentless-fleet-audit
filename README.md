@@ -127,6 +127,8 @@ Para uma frota maior, `make fleet-up` sobe mais 6 servidores, cada um com um cen
 
 Cada alvo é só um `sshd` ocioso (poucos MB de RAM).
 
+`make lab-resolve` corrige todos os cenários de uma vez (para ver recuperação, "EVENTO RESOLVIDO" e o chamado do Jira sendo fechado) e grava um marcador para o alvo continuar saudável mesmo depois de reiniciar. `make lab-break` volta tudo ao estado de demonstração. As chaves de host dos alvos ficam em `lab/state/` (fora do Git), então recriar um container não parece ataque *man-in-the-middle* para o gateway.
+
 ## Limitações conhecidas
 
 - **HP-UX não roda no laboratório** (exige hardware Itanium/PA-RISC). Os parsers de `bdf` e `swlist` são validados com fixtures **sintéticas** no formato real.

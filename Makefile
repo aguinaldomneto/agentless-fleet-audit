@@ -5,7 +5,7 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint fleet-up fleet-down \
         collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders \
-        n8n-wait n8n-credentials n8n-setup
+        n8n-wait n8n-credentials n8n-setup lab-resolve lab-break
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -115,8 +115,14 @@ fleet-down:      ## desabilita a frota no banco ANTES de parar (senão vira aler
 	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1
 	docker compose --profile fleet stop $(FLEET)
 
+lab-resolve:     ## corrige todos os cenários (disco, UID 0, certificados) e mantém após reiniciar
+	sh lab/scenario.sh resolve
+
+lab-break:       ## volta os alvos ao estado de demonstração (alertas voltam no próximo ciclo)
+	sh lab/scenario.sh break
+
 lint:            ## shellcheck em modo POSIX
-	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh db/00-init.sh db/migrate.sh
+	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh lab/scenario.sh db/00-init.sh db/migrate.sh
 
 # Coleta manual (sem n8n) — útil para depurar o coletor
 collect-debian:

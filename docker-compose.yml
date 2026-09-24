@@ -4,6 +4,7 @@ x-target: &target
   restart: unless-stopped
   volumes:
     - ./lab/keys/collector.pub:/keys/collector.pub:ro
+    - ./lab/state:/lab-state          # chaves de host + marcador de cenário (persistem)
   networks: [lab]
 
 services:
