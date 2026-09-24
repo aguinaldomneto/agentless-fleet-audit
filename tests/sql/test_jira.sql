@@ -2,6 +2,8 @@
 \set QUIET on
 BEGIN;
 SET client_min_messages = warning;
+-- isola do ambiente: o banco real pode ter o Jira configurado (desfeito no ROLLBACK)
+DELETE FROM settings WHERE key IN ('jira_base_url', 'jira_project', 'jira_issue_type');
 INSERT INTO hosts (name, address) VALUES ('j-01', '10.0.0.9');
 
 DO $$

@@ -2,6 +2,8 @@
 \set QUIET on
 BEGIN;
 SET client_min_messages = warning;
+-- isola do ambiente: usa os intervalos padrão 60/180/480 (desfeito no ROLLBACK)
+DELETE FROM settings WHERE key LIKE 'remind_minutes_%';
 INSERT INTO hosts (name, address) VALUES ('n-01', 'n-01');
 INSERT INTO settings (key, value) VALUES ('telegram_chat_id', '555')
 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
