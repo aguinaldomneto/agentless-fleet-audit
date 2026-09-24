@@ -26,6 +26,12 @@ if [ "${FILL_DATA_MB:-0}" -gt 0 ] && [ -d /data ] && [ ! -f /data/fill.bin ]; th
     dd if=/dev/zero of=/data/fill.bin bs=1048576 count="$FILL_DATA_MB" 2>/dev/null || true
 fi
 
+# Conta extra com UID 0 (cenário de compliance: "root" escondido). Login continua
+# bloqueado: o sshd só aceita o usuário collector (AllowUsers abaixo).
+if [ -n "${UID0_USER:-}" ] && ! grep -q "^${UID0_USER}:" /etc/passwd; then
+    echo "${UID0_USER}:x:0:0:uid0 de laboratório:/root:/bin/sh" >> /etc/passwd
+fi
+
 exec /usr/sbin/sshd -D -e \
     -o PasswordAuthentication=no \
     -o KbdInteractiveAuthentication=no \

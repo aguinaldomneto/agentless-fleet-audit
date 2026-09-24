@@ -558,7 +558,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "time:DD/MM/YYYY HH:mm"
               },
               {
                 "id": "custom.width",
@@ -1065,7 +1065,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "dateTimeAsLocal"
+                "value": "time:DD/MM/YYYY HH:mm"
               }
             ]
           }

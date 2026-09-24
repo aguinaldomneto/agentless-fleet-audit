@@ -104,6 +104,7 @@ make test-sql                 # testes da ingestão no banco em execução
 make set-chat-id CHAT_ID=...  # destino dos alertas no Telegram (fica no banco, não no Git)
 make set-jira BASE_URL=https://x.atlassian.net PROJECT=OPS ISSUE_TYPE=Task   # opcional
 make import-workflow WF=jira  # importa só um workflow
+make fleet-up                 # +6 servidores com cenários variados (opcional)
 ```
 
 No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) **Header Auth** para o bridge (nome `X-Bridge-Token`, valor = `BRIDGE_TOKEN` do `.env`; o token do bot vai só no `.env`, em `TELEGRAM_BOT_TOKEN`) e, para o Jira, **Basic Auth** (e-mail da conta Atlassian + API token).
@@ -112,6 +113,17 @@ No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postg
 - Grafana: http://localhost:3000 (usuário `admin`, senha `GRAFANA_ADMIN_PASSWORD` do `.env`); o dashboard abre direto na home
 
 O laboratório já nasce com problemas para demonstrar os alertas: `debian-01` tem `/data` em ~90% e um certificado vencendo em 20 dias, e `alpine-01` tem um certificado vencendo em 5 dias.
+
+Para uma frota maior, `make fleet-up` sobe mais 6 servidores, cada um com um cenário (e `make fleet-down` desabilita no banco antes de parar, para não gerar alerta de falha de SSH):
+
+| Host | Base | Cenário |
+|---|---|---|
+| web-01 | Debian | disco em ~88% → ALTA |
+| db-01 | Rocky | conta `dbadmin` com UID 0 → CRÍTICA; certificado em 12 dias → ALTA |
+| app-02 | Alpine | certificado em 25 dias → MÉDIA |
+| web-02, app-01, bkp-01 | Alpine, Debian, Rocky | saudáveis |
+
+Cada alvo é só um `sshd` ocioso (poucos MB de RAM).
 
 ## Limitações conhecidas
 

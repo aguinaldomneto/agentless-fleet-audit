@@ -3,7 +3,7 @@ SSH_OPTS = -i lab/keys/collector -o StrictHostKeyChecking=no -o UserKnownHostsFi
 SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PASSWORD \
            GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN BRIDGE_TOKEN
 
-.PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint \
+.PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint fleet-up fleet-down \
         collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
@@ -77,6 +77,18 @@ set-jira:        ## make set-jira BASE_URL=https://x.atlassian.net PROJECT=OPS [
 	  "INSERT INTO settings (key, value) VALUES ('jira_base_url', '$(BASE_URL)'), ('jira_project', '$(PROJECT)'), ('jira_issue_type', '$(or $(ISSUE_TYPE),Task)')" \
 	  "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now();" | \
 	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 && echo "Jira configurado"
+
+FLEET = web-01 web-02 db-01 app-01 app-02 bkp-01
+FLEET_SQL = 'web-01','web-02','db-01','app-01','app-02','bkp-01'
+
+fleet-up:        ## sobe +6 servidores com cenários variados e cadastra no banco
+	docker compose --profile fleet up -d --build $(FLEET)
+	docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 < db/seed_fleet.sql && echo "frota cadastrada: $(FLEET)"
+
+fleet-down:      ## desabilita a frota no banco ANTES de parar (senão vira alerta de falha de SSH)
+	echo "UPDATE hosts SET enabled = false WHERE name IN ($(FLEET_SQL));" | \
+	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1
+	docker compose --profile fleet stop $(FLEET)
 
 lint:            ## shellcheck em modo POSIX
 	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh db/00-init.sh db/migrate.sh

@@ -85,6 +85,8 @@ services:
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?defina no .env}
       GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /etc/grafana/dashboards/fleet-audit.json
       GF_USERS_DEFAULT_LANGUAGE: pt-BR
+      GF_DATE_FORMATS_FULL_DATE: "DD/MM/YYYY HH:mm:ss"      # padrão BR, independente do navegador
+      GF_DATE_FORMATS_INTERVAL_DAY: "DD/MM"
       GF_ANALYTICS_REPORTING_ENABLED: "false"
       GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
       GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD}
@@ -117,6 +119,51 @@ services:
     hostname: alpine-01
     environment: { CERT_DAYS: "5" }                        # cert crítico
     ports: ["127.0.0.1:2223:22"]
+
+  # --- frota extra (opcional): make fleet-up / make fleet-down --------------
+  # Cada host demonstra um cenário diferente; nenhum publica porta no Windows.
+  web-01:     # disco em ~88% -> ALTA
+    <<: *target
+    profiles: [fleet]
+    build: { context: ./lab/target, dockerfile: Dockerfile.debian }
+    hostname: web-01
+    environment: { CERT_DAYS: "365", FILL_DATA_MB: "56" }
+    tmpfs: ["/data:size=64m"]
+
+  web-02:     # saudável
+    <<: *target
+    profiles: [fleet]
+    build: { context: ./lab/target, dockerfile: Dockerfile.alpine }
+    hostname: web-02
+    environment: { CERT_DAYS: "365" }
+
+  db-01:      # conta com UID 0 além do root -> CRÍTICA; certificado em 12 dias -> ALTA
+    <<: *target
+    profiles: [fleet]
+    build: { context: ./lab/target, dockerfile: Dockerfile.rocky }
+    hostname: db-01
+    environment: { CERT_DAYS: "12", UID0_USER: "dbadmin" }
+
+  app-01:     # saudável
+    <<: *target
+    profiles: [fleet]
+    build: { context: ./lab/target, dockerfile: Dockerfile.debian }
+    hostname: app-01
+    environment: { CERT_DAYS: "90" }
+
+  app-02:     # certificado em 25 dias -> MÉDIA
+    <<: *target
+    profiles: [fleet]
+    build: { context: ./lab/target, dockerfile: Dockerfile.alpine }
+    hostname: app-02
+    environment: { CERT_DAYS: "25" }
+
+  bkp-01:     # saudável
+    <<: *target
+    profiles: [fleet]
+    build: { context: ./lab/target, dockerfile: Dockerfile.rocky }
+    hostname: bkp-01
+    environment: { CERT_DAYS: "365" }
 
 networks:
   lab: {}
