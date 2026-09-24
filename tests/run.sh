@@ -46,12 +46,12 @@ else fail=$((fail + 1)); echo "FAIL - filter_dir_mounts: $got"; fi
 osroot=$(mktemp -d) || exit 1
 mkdir -p "$osroot/etc"
 printf 'CentOS release 6.10 (Final)\n' > "$osroot/etc/redhat-release"
-got=$(os_pretty "$osroot")
+got=$(OS_ROOT=$osroot os_pretty)
 printf 'NAME="X"\nPRETTY_NAME="Ubuntu 12.04.5 LTS"\n' > "$osroot/etc/os-release"
-got2=$(os_pretty "$osroot")
+got2=$(OS_ROOT=$osroot os_pretty)
 rm -f "$osroot/etc/os-release" "$osroot/etc/redhat-release"
 printf '7.11\n' > "$osroot/etc/debian_version"
-got3=$(os_pretty "$osroot")
+got3=$(OS_ROOT=$osroot os_pretty)
 rm -rf "$osroot"
 if [ "$got" = "CentOS release 6.10 (Final)" ] && [ "$got2" = "Ubuntu 12.04.5 LTS" ] && [ "$got3" = "Debian 7.11" ]; then
     pass=$((pass + 1)); echo "ok   - versão do SO sem /etc/os-release (legado)"

@@ -129,9 +129,10 @@ filter_dir_mounts() {
 # --- seções de coleta --------------------------------------------------------
 
 # Nome da distribuição. /etc/os-release só existe a partir de ~2012: CentOS 6,
-# RHEL 5/6, SLES 11 e similares só têm os arquivos antigos. $1 = raiz (testes).
+# RHEL 5/6, SLES 11 e similares só têm os arquivos antigos.
+# OS_ROOT permite apontar para uma árvore falsa nos testes.
 os_pretty() {
-    _root=${1:-}
+    _root=${OS_ROOT:-}
     if [ -r "$_root/etc/os-release" ]; then
         sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$_root/etc/os-release"
     elif [ -r "$_root/etc/redhat-release" ]; then
