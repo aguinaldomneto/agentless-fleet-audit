@@ -73,6 +73,7 @@ Cada alerta aberto vem com os botões **✅ Reconhecer** (pausa os lembretes at�
 | **Token do bot isolado** | Mesmo padrão do gateway SSH: o token do Telegram fica só no `telegram-bridge`; o n8n fala com ele pela rede interna com um token próprio. |
 | **Jira num workflow separado** | Chamado só para evento crítico; resolução comenta duração e move para a primeira transição de categoria *done* (funciona com qualquer fluxo de projeto). Jira fora do ar não afeta o Telegram, e vice-versa. |
 | **Credenciais como código** | IDs fixos nos workflows + credenciais geradas do `.env` na subida. Clonar e rodar `make up` entrega o n8n pronto, sem escolher credencial nó a nó; trocar um token é editar o `.env` e rodar `make n8n-setup`. Teste no CI garante que todo nó aponta para uma credencial que existe. |
+| **Upgrade de major sem risco** | `make pg-upgrade`: para quem escreve, `pg_dumpall`, sobe a versão nova em **volume novo**, restaura, compara a contagem de linhas de todas as tabelas e só então troca o `.env`. Qualquer falha volta sozinha para a versão anterior; o volume antigo fica intacto para rollback manual. |
 | **Versões fixas** | n8n e Grafana com tag exata: `latest` mudou a interface do n8n no meio do projeto. Atualização é decisão, não acidente. |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
@@ -149,6 +150,14 @@ O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RH
 
 `make lab-resolve` corrige todos os cenários de uma vez (para ver recuperação, "EVENTO RESOLVIDO" e o chamado do Jira sendo fechado) e grava um marcador para o alvo continuar saudável mesmo depois de reiniciar. `make lab-break` volta tudo ao estado de demonstração. As chaves de host dos alvos ficam em `lab/state/` (fora do Git), então recriar um container não parece ataque *man-in-the-middle* para o gateway.
 
+## Operação
+
+```sh
+make pg-backup      # pg_dumpall de todos os bancos em backups/ (fora do Git)
+make pg-upgrade     # 16 -> 17 (ou IMAGE=postgres:X-alpine); rollback: cp backups/env-<data>.bak .env && docker compose up -d
+make lab-resolve    # corrige os cenários de demonstração / make lab-break volta
+```
+
 ## Limitações conhecidas
 
 - **HP-UX não roda no laboratório** (exige hardware Itanium/PA-RISC). Os parsers de `bdf` e `swlist` são validados com fixtures **sintéticas** no formato real.
@@ -168,5 +177,5 @@ O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RH
 - [x] Laboratório com 9 servidores e cenários variados (`make fleet-up`)
 - [x] n8n provisionado sem clique: credenciais do `.env`, workflows importados e publicados
 - [x] Alvos legados (Ubuntu 12.04 / OpenSSH 5.9, CentOS 7) com perfil de SSH por host
-- [ ] Postgres 17 (o n8n já avisa que o 16 tem só suporte de compatibilidade)
+- [x] Postgres 16 → 17 com `make pg-upgrade` (dump/restore verificado, rollback automático)
 - [ ] Terraform: mesmo stack em VM na nuvem

@@ -3,3 +3,4 @@ lab/keys/*
 !lab/keys/.gitkeep
 __pycache__/
 lab/state/
+backups/

@@ -17,6 +17,7 @@ services:
       INVENTORY_RW_PASSWORD: ${INVENTORY_RW_PASSWORD:?defina no .env}
       GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD:?defina no .env}
       LOAD_LAB_SEED: ${LOAD_LAB_SEED:-false}
+      POSTGRES_SKIP_INIT: ${POSTGRES_SKIP_INIT:-false}   # só o pg-upgrade usa
       TZ: ${TZ}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -191,7 +192,10 @@ networks:
   lab: {}
 
 volumes:
-  pgdata: {}
+  pgdata:
+    # Nome versionado pelo make pg-upgrade: a versão nova sobe em volume novo e a
+    # antiga fica intacta para rollback. Padrão = nome original do projeto.
+    name: ${POSTGRES_VOLUME:-fleet-audit_pgdata}
   n8ndata: {}
   grafanadata: {}
   gatewaystate: {}

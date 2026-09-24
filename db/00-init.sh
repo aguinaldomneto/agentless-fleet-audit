@@ -4,6 +4,12 @@
 set -eu
 SCHEMA_DIR=${SCHEMA_DIR:-/schema}
 
+# Upgrade de versão (db/pg-upgrade.sh): o cluster novo nasce vazio e recebe o dump.
+if [ "${POSTGRES_SKIP_INIT:-false}" = true ]; then
+    echo "POSTGRES_SKIP_INIT=true: init pulado, o conteúdo virá do restore"
+    exit 0
+fi
+
 psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname postgres <<SQL
 CREATE ROLE n8n          LOGIN PASSWORD '${N8N_DB_PASSWORD}';
 CREATE ROLE inventory_rw LOGIN PASSWORD '${INVENTORY_RW_PASSWORD}';

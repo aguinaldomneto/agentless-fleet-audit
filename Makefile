@@ -5,7 +5,7 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint fleet-up fleet-down \
         collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders \
-        n8n-wait n8n-credentials n8n-setup lab-resolve lab-break legacy-up legacy-down
+        n8n-wait n8n-credentials n8n-setup lab-resolve lab-break legacy-up legacy-down pg-backup pg-upgrade
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -132,8 +132,17 @@ lab-resolve:     ## corrige todos os cenários (disco, UID 0, certificados) e ma
 lab-break:       ## volta os alvos ao estado de demonstração (alertas voltam no próximo ciclo)
 	sh lab/scenario.sh break
 
+pg-backup:       ## pg_dumpall de todos os bancos (n8n + inventário) em backups/
+	@mkdir -p backups
+	@f=backups/pg-dumpall-$$(date +%Y%m%d-%H%M%S).sql; umask 077; \
+	  docker compose exec -T postgres pg_dumpall -U postgres > $$f && \
+	  tail -n 5 $$f | grep -q 'cluster dump complete' && echo "ok: $$f ($$(du -h $$f | cut -f1))"
+
+pg-upgrade:      ## upgrade de versão major do Postgres (dump/restore, volume novo, rollback automático)
+	sh db/pg-upgrade.sh $(IMAGE)
+
 lint:            ## shellcheck em modo POSIX
-	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh lab/scenario.sh db/00-init.sh db/migrate.sh
+	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh lab/scenario.sh db/00-init.sh db/migrate.sh db/pg-upgrade.sh
 
 # Coleta manual (sem n8n) — útil para depurar o coletor
 collect-debian:
