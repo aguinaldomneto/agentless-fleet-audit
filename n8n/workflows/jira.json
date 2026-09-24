@@ -46,7 +46,13 @@
         240,
         100
       ],
-      "notes": "Credencial: Postgres inventory_rw. Vazia se o Jira não estiver configurado (make set-jira)."
+      "notes": "Credencial: Postgres inventory_rw. Vazia se o Jira não estiver configurado (make set-jira).",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {
@@ -115,7 +121,13 @@
         960,
         0
       ],
-      "notes": "Credencial: Basic Auth (e-mail Atlassian + API token)."
+      "notes": "Credencial: Basic Auth (e-mail Atlassian + API token).",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "fleetAuditJiraBA",
+          "name": "Jira"
+        }
+      }
     },
     {
       "parameters": {
@@ -132,7 +144,13 @@
       "position": [
         1200,
         0
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {
@@ -154,7 +172,13 @@
       "position": [
         960,
         240
-      ]
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "fleetAuditJiraBA",
+          "name": "Jira"
+        }
+      }
     },
     {
       "parameters": {
@@ -173,7 +197,13 @@
       "position": [
         1200,
         240
-      ]
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "fleetAuditJiraBA",
+          "name": "Jira"
+        }
+      }
     },
     {
       "parameters": {
@@ -243,7 +273,13 @@
       "position": [
         1920,
         160
-      ]
+      ],
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "fleetAuditJiraBA",
+          "name": "Jira"
+        }
+      }
     },
     {
       "parameters": {
@@ -261,7 +297,13 @@
         2160,
         240
       ],
-      "notes": "Sem transição para 'concluído' no fluxo do projeto: fica só o comentário e o evento é marcado como tratado."
+      "notes": "Sem transição para 'concluído' no fluxo do projeto: fica só o comentário e o evento é marcado como tratado.",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     }
   ],
   "connections": {

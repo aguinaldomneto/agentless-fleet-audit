@@ -46,7 +46,13 @@
         240,
         100
       ],
-      "notes": "Credencial: Postgres inventory_rw"
+      "notes": "Credencial: Postgres inventory_rw",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {
@@ -70,7 +76,13 @@
         100
       ],
       "onError": "continueRegularOutput",
-      "notes": "Credencial: Header Auth, nome X-Gateway-Token. Erro não para o fluxo: a falha é gravada no banco."
+      "notes": "Credencial: Header Auth, nome X-Gateway-Token. Erro não para o fluxo: a falha é gravada no banco.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fleetAuditGatewy",
+          "name": "Gateway"
+        }
+      }
     },
     {
       "parameters": {
@@ -89,7 +101,13 @@
         720,
         100
       ],
-      "notes": "Parâmetros como array: a saída do coletor tem vírgulas e quebraria a lista separada por vírgula."
+      "notes": "Parâmetros como array: a saída do coletor tem vírgulas e quebraria a lista separada por vírgula.",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {
@@ -124,7 +142,13 @@
       "position": [
         240,
         420
-      ]
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {
@@ -141,7 +165,13 @@
         100
       ],
       "executeOnce": true,
-      "notes": "Novos, lembretes (1h/3h/8h por severidade) e recuperações. Roda uma vez por execução."
+      "notes": "Novos, lembretes (1h/3h/8h por severidade) e recuperações. Roda uma vez por execução.",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {
@@ -178,7 +208,13 @@
         1440,
         100
       ],
-      "notes": "Via telegram-bridge (única peça com o token do bot). Credencial: Header Auth X-Bridge-Token."
+      "notes": "Via telegram-bridge (única peça com o token do bot). Credencial: Header Auth X-Bridge-Token.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fleetAuditBridge",
+          "name": "Bridge"
+        }
+      }
     },
     {
       "parameters": {
@@ -196,7 +232,13 @@
         1680,
         100
       ],
-      "notes": "Uma execução por mensagem enviada. Só roda se o Telegram aceitou; senão reenvia no próximo ciclo."
+      "notes": "Uma execução por mensagem enviada. Só roda se o Telegram aceitou; senão reenvia no próximo ciclo.",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     }
   ],
   "connections": {

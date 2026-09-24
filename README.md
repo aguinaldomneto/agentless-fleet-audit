@@ -71,6 +71,8 @@ Cada alerta aberto vem com os botões **✅ Reconhecer** (pausa os lembretes at�
 | **Botões sem URL pública** | O `telegram-bridge` busca os cliques por *long polling* (`getUpdates`) e repassa ao webhook **interno** do n8n. Nada do laboratório fica exposto na internet. A ação é validada no banco: só o chat configurado pode reconhecer ou silenciar. |
 | **Token do bot isolado** | Mesmo padrão do gateway SSH: o token do Telegram fica só no `telegram-bridge`; o n8n fala com ele pela rede interna com um token próprio. |
 | **Jira num workflow separado** | Chamado só para evento crítico; resolução comenta duração e move para a primeira transição de categoria *done* (funciona com qualquer fluxo de projeto). Jira fora do ar não afeta o Telegram, e vice-versa. |
+| **Credenciais como código** | IDs fixos nos workflows + credenciais geradas do `.env` na subida. Clonar e rodar `make up` entrega o n8n pronto, sem escolher credencial nó a nó; trocar um token é editar o `.env` e rodar `make n8n-setup`. Teste no CI garante que todo nó aponta para uma credencial que existe. |
+| **Versões fixas** | n8n e Grafana com tag exata: `latest` mudou a interface do n8n no meio do projeto. Atualização é decisão, não acidente. |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
 
@@ -96,9 +98,9 @@ docker-compose.yml       laboratório completo
 Requisitos: Docker + Compose (Linux ou WSL2), `make`, `ssh`.
 
 ```sh
-make up                       # gera .env com segredos aleatórios, chaves SSH e sobe tudo
+make up                       # gera .env, chaves SSH, sobe tudo e provisiona o n8n (credenciais + workflows publicados)
 make collect-debian           # coleta manual, sem n8n, para validar SSH + coletor
-make import-workflows         # importa o workflow de coleta no n8n
+make n8n-setup                # reaplica credenciais (do .env) e workflows: use após mudar um token
 make test                     # testes do coletor e do gateway
 make test-sql                 # testes da ingestão no banco em execução
 make set-chat-id CHAT_ID=...  # destino dos alertas no Telegram (fica no banco, não no Git)
@@ -107,7 +109,7 @@ make import-workflow WF=jira  # importa só um workflow
 make fleet-up                 # +6 servidores com cenários variados (opcional)
 ```
 
-No n8n, crie duas credenciais e selecione-as nos nós: **Postgres** (host `postgres`, banco `inventory`, usuário `inventory_rw`) **Header Auth** (nome `X-Gateway-Token`, valor = `GATEWAY_TOKEN` do `.env`) **Header Auth** para o bridge (nome `X-Bridge-Token`, valor = `BRIDGE_TOKEN` do `.env`; o token do bot vai só no `.env`, em `TELEGRAM_BOT_TOKEN`) e, para o Jira, **Basic Auth** (e-mail da conta Atlassian + API token).
+Nenhuma credencial é criada na mão: `n8n/credentials.py` gera Postgres, Gateway e Bridge a partir do `.env` (e Jira, se `JIRA_EMAIL` e `JIRA_API_TOKEN` estiverem preenchidos), com IDs fixos que os workflows versionados já referenciam. O n8n cifra tudo com `N8N_ENCRYPTION_KEY` na importação. Antes de `make up`, preencha no `.env` só o `TELEGRAM_BOT_TOKEN`; o `chat_id` vai com `make set-chat-id`.
 
 - n8n: http://localhost:5678
 - Grafana: http://localhost:3000 (usuário `admin`, senha `GRAFANA_ADMIN_PASSWORD` do `.env`); o dashboard abre direto na home
@@ -141,5 +143,6 @@ Cada alvo é só um `sshd` ocioso (poucos MB de RAM).
 - [x] Dashboard Grafana provisionado (eventos, hosts, disco, certificados, taxa de coleta, MTTR)
 - [x] Chamado no Jira: abre em evento crítico, comenta e fecha na resolução
 - [x] Três severidades com lembrete recorrente (1h/3h/8h) e botões Reconhecer/Silenciar no Telegram
-- [ ] Workflows versionados e importados via CI
+- [x] Laboratório com 9 servidores e cenários variados (`make fleet-up`)
+- [x] n8n provisionado sem clique: credenciais do `.env`, workflows importados e publicados
 - [ ] Terraform: mesmo stack em VM na nuvem

@@ -18,7 +18,13 @@
         0
       ],
       "webhookId": "6f984b33-75c6-53d9-a0ac-a85fc265215a",
-      "notes": "Chamado só pelo telegram-bridge, pela rede interna. Credencial: Header Auth X-Bridge-Token."
+      "notes": "Chamado só pelo telegram-bridge, pela rede interna. Credencial: Header Auth X-Bridge-Token.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fleetAuditBridge",
+          "name": "Bridge"
+        }
+      }
     },
     {
       "parameters": {
@@ -36,7 +42,13 @@
         240,
         0
       ],
-      "notes": "Valida o chat autorizado e o formato da ação no banco (telegram_action)."
+      "notes": "Valida o chat autorizado e o formato da ação no banco (telegram_action).",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
     },
     {
       "parameters": {

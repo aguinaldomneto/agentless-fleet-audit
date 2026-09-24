@@ -4,7 +4,8 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
            GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN BRIDGE_TOKEN
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint fleet-up fleet-down \
-        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders
+        collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders \
+        n8n-wait n8n-credentials n8n-setup
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -15,8 +16,9 @@ env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 keys:            ## gera o par de chaves do coletor
 	sh lab/gen-keys.sh
 
-up: env keys     ## sobe o laboratório completo
+up: env keys     ## sobe o laboratório completo, já com credenciais e workflows no n8n
 	docker compose up -d --build
+	$(MAKE) n8n-setup
 
 down:            ## para o laboratório (mantém dados)
 	docker compose down
@@ -27,12 +29,34 @@ reset:           ## APAGA volumes (banco, n8n, grafana) e recomeça do zero
 migrate:         ## aplica migrations pendentes no banco em execução
 	docker compose exec -T postgres sh /schema/migrate.sh
 
-import-workflows: ## importa TODOS os workflows (sobrescreve e zera as credenciais escolhidas nos nós)
-	docker compose exec -T n8n n8n import:workflow --separate --input=/workflows
+# IDs fixos dos workflows (campo "id" de cada JSON em n8n/workflows)
+WF_IDS = fleetAuditColeta fleetAuditTgAcao
+N8N_EXEC = docker compose exec -T n8n
 
-import-workflow: ## importa um só: make import-workflow WF=jira
+n8n-wait:
+	@i=0; until $(N8N_EXEC) wget -qO- http://localhost:5678/healthz >/dev/null 2>&1; do \
+	  i=$$((i+1)); [ $$i -lt 60 ] || { echo "n8n não respondeu em 2 min"; exit 1; }; sleep 2; done
+
+n8n-credentials: n8n-wait ## cria/atualiza as credenciais do n8n a partir do .env (IDs fixos)
+	@python3 n8n/credentials.py .env >/dev/null    # valida antes (falha aqui se faltar variável)
+	@python3 n8n/credentials.py .env | $(N8N_EXEC) sh -c \
+	  'umask 077; f=$$(mktemp); cat > "$$f"; n8n import:credentials --input="$$f"; rc=$$?; rm -f "$$f"; exit $$rc'
+
+import-workflows: n8n-wait ## importa e publica TODOS os workflows (credenciais já vêm ligadas)
+	$(N8N_EXEC) n8n import:workflow --separate --input=/workflows
+	@for id in $(WF_IDS); do $(N8N_EXEC) n8n publish:workflow --id=$$id >/dev/null && echo "publicado: $$id"; done
+	@if grep -q '^JIRA_API_TOKEN=.' .env; then \
+	  $(N8N_EXEC) n8n publish:workflow --id=fleetAuditJira01 >/dev/null && echo "publicado: fleetAuditJira01"; \
+	else echo "Jira sem JIRA_API_TOKEN no .env: workflow importado, não publicado"; fi
+	docker compose restart n8n    # publicação pela CLI só vale após reiniciar
+
+import-workflow: n8n-wait ## importa e publica um só: make import-workflow WF=jira
 	@test -n "$(WF)" || (echo "uso: make import-workflow WF=<nome sem .json>"; exit 1)
-	docker compose exec -T n8n n8n import:workflow --input=/workflows/$(WF).json
+	$(N8N_EXEC) n8n import:workflow --input=/workflows/$(WF).json
+	$(N8N_EXEC) n8n publish:workflow --id=$$(python3 -c "import json;print(json.load(open('n8n/workflows/$(WF).json'))['id'])")
+	docker compose restart n8n
+
+n8n-setup: n8n-credentials import-workflows ## credenciais + workflows + publicação, sem nenhum clique
 
 forget-hostkeys: ## após recriar os alvos (chave de host nova)
 	docker compose exec collector-gateway rm -f /state/known_hosts
@@ -50,6 +74,7 @@ test-n8n:
 	node tests/n8n/test_format_message.js
 	node tests/n8n/test_jira.js
 	python3 n8n/sync_code.py --check
+	python3 tests/n8n/test_credentials.py
 
 set-chat-id:     ## grava o chat_id do Telegram no banco: make set-chat-id CHAT_ID=123456
 	@case "$(CHAT_ID)" in ''|*[!0-9-]*) echo "uso: make set-chat-id CHAT_ID=<número>"; exit 1;; esac
