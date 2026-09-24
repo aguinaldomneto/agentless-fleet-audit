@@ -1,0 +1,14 @@
+# Ubuntu 12.04 "precise" (2012, fim de suporte em 2017).
+# OpenSSH 5.9: anterior ao ed25519 (6.5) e só assina com ssh-rsa (SHA-1).
+# Repositórios oficiais saíram do ar: old-releases.ubuntu.com guarda o último estado.
+FROM ubuntu:12.04
+RUN sed -i -e 's|http://archive.ubuntu.com|http://old-releases.ubuntu.com|g' \
+           -e 's|http://security.ubuntu.com|http://old-releases.ubuntu.com|g' /etc/apt/sources.list \
+ && apt-get update \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends openssh-server openssl \
+ && rm -rf /var/lib/apt/lists/* \
+ && useradd -m -s /bin/sh collector
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
+EXPOSE 22
+ENTRYPOINT ["/entrypoint.sh"]

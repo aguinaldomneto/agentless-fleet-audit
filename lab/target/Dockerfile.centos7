@@ -1,0 +1,12 @@
+# CentOS 7 (fim de suporte em 06/2024). OpenSSH 7.4, glibc 2.17, openssl 1.0.2.
+# mirrorlist saiu do ar: vault.centos.org guarda o último estado dos repositórios.
+FROM centos:7
+RUN sed -i -e 's/^mirrorlist=/#mirrorlist=/' \
+           -e 's|^#\{0,1\}baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|' /etc/yum.repos.d/CentOS-*.repo \
+ && yum -y install openssh-server openssl \
+ && yum clean all \
+ && useradd -m -s /bin/sh collector
+COPY entrypoint.sh /entrypoint.sh
+RUN chmod 755 /entrypoint.sh
+EXPOSE 22
+ENTRYPOINT ["/entrypoint.sh"]

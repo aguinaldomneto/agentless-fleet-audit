@@ -42,6 +42,21 @@ got=$(printf 'FS|/|10|5|5|50\nFS|/etc/passwd|10|5|5|50\nFS|/nao/existe|1|1|0|100
 if [ "$got" = "FS|/|10|5|5|50" ]; then pass=$((pass + 1)); echo "ok   - descarta montagem que não é diretório"
 else fail=$((fail + 1)); echo "FAIL - filter_dir_mounts: $got"; fi
 
+# versão do SO: os-release > redhat-release > SuSE-release > debian_version
+osroot=$(mktemp -d) || exit 1
+mkdir -p "$osroot/etc"
+printf 'CentOS release 6.10 (Final)\n' > "$osroot/etc/redhat-release"
+got=$(os_pretty "$osroot")
+printf 'NAME="X"\nPRETTY_NAME="Ubuntu 12.04.5 LTS"\n' > "$osroot/etc/os-release"
+got2=$(os_pretty "$osroot")
+rm -f "$osroot/etc/os-release" "$osroot/etc/redhat-release"
+printf '7.11\n' > "$osroot/etc/debian_version"
+got3=$(os_pretty "$osroot")
+rm -rf "$osroot"
+if [ "$got" = "CentOS release 6.10 (Final)" ] && [ "$got2" = "Ubuntu 12.04.5 LTS" ] && [ "$got3" = "Debian 7.11" ]; then
+    pass=$((pass + 1)); echo "ok   - versão do SO sem /etc/os-release (legado)"
+else fail=$((fail + 1)); echo "FAIL - os_pretty: [$got] [$got2] [$got3]"; fi
+
 # smoke test: coleta real na máquina local
 COLLECT_LIB_ONLY=0 sh ./collector/collect.sh > "$tmp" 2>&1
 first=$(head -n 1 "$tmp" | cut -d'|' -f1)

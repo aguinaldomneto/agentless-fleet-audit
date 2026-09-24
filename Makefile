@@ -5,7 +5,7 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint fleet-up fleet-down \
         collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders \
-        n8n-wait n8n-credentials n8n-setup lab-resolve lab-break
+        n8n-wait n8n-credentials n8n-setup lab-resolve lab-break legacy-up legacy-down
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -114,6 +114,17 @@ fleet-down:      ## desabilita a frota no banco ANTES de parar (senão vira aler
 	echo "UPDATE hosts SET enabled = false WHERE name IN ($(FLEET_SQL));" | \
 	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1
 	docker compose --profile fleet stop $(FLEET)
+
+LEGACY = ubuntu-12 centos-7
+
+legacy-up: keys  ## sobe alvos legados (Ubuntu 12.04 / OpenSSH 5.9 e CentOS 7) e cadastra no banco
+	docker compose --profile legacy up -d --build $(LEGACY)
+	docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1 < db/seed_legacy.sql && echo "legados cadastrados: $(LEGACY)"
+
+legacy-down:     ## desabilita os legados no banco ANTES de parar
+	echo "UPDATE hosts SET enabled = false WHERE name IN ('ubuntu-12','centos-7');" | \
+	  docker compose exec -T postgres psql -U inventory_rw -d inventory -q -v ON_ERROR_STOP=1
+	docker compose --profile legacy stop $(LEGACY)
 
 lab-resolve:     ## corrige todos os cenários (disco, UID 0, certificados) e mantém após reiniciar
 	sh lab/scenario.sh resolve

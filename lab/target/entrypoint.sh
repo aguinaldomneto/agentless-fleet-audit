@@ -1,10 +1,16 @@
 #!/bin/sh
-# Entrypoint comum dos servidores-alvo do laboratório (Debian, Rocky, Alpine).
+# Entrypoint comum dos servidores-alvo do laboratório (Debian, Rocky, Alpine e
+# os legados Ubuntu 12.04 / CentOS 7). Só POSIX sh e opções que existem no
+# OpenSSH 5.9: o mesmo script tem de rodar em userland de 2012.
 set -eu
 
 # Chave pública do coletor (montada read-only pelo compose)
 install -d -m 700 -o collector -g collector /home/collector/.ssh
-install -m 600 -o collector -g collector /keys/collector.pub /home/collector/.ssh/authorized_keys
+# Alvos legados recebem também a chave RSA (OpenSSH < 6.5 não conhece ed25519).
+cat /keys/collector.pub > /home/collector/.ssh/authorized_keys
+if [ -f /keys/collector_rsa.pub ]; then cat /keys/collector_rsa.pub >> /home/collector/.ssh/authorized_keys; fi
+chown collector:collector /home/collector/.ssh/authorized_keys
+chmod 600 /home/collector/.ssh/authorized_keys
 
 # useradd/adduser criam a conta com senha '!' (bloqueada). Sem PAM (Alpine),
 # o sshd recusa até login por chave em conta bloqueada. '*' = sem senha, não bloqueada.
@@ -13,12 +19,17 @@ sed -i 's/^collector:![^:]*:/collector:*:/' /etc/shadow
 # Estado persistente do alvo (bind mount ./lab/state): chaves de host e marcador de
 # "cenário resolvido". Chave de host estável = recriar o container não parece ataque
 # man-in-the-middle para o gateway (StrictHostKeyChecking=accept-new).
-STATE="/lab-state/$(hostname)"
+STATE="/lab-state/$(uname -n)"
 mkdir -p "$STATE"
 if ls "$STATE"/ssh_host_*_key >/dev/null 2>&1; then
     cp -p "$STATE"/ssh_host_* /etc/ssh/
 else
-    ssh-keygen -A >/dev/null
+    # ssh-keygen -A só existe a partir do OpenSSH 5.8
+    if ! ssh-keygen -A >/dev/null 2>&1; then
+        for t in rsa dsa; do
+            [ -f "/etc/ssh/ssh_host_${t}_key" ] || ssh-keygen -q -t "$t" -N '' -f "/etc/ssh/ssh_host_${t}_key"
+        done
+    fi
     cp -p /etc/ssh/ssh_host_* "$STATE"/
 fi
 
@@ -32,7 +43,7 @@ if [ ! -f /opt/app/certs/app.crt ]; then
     days="${CERT_DAYS:-365}"
     if [ "$RESOLVED" = true ]; then days=365; fi
     openssl req -x509 -newkey rsa:2048 -nodes -days "$days" \
-        -subj "/CN=$(hostname).lab.local" \
+        -subj "/CN=$(uname -n).lab.local" \
         -keyout /opt/app/certs/app.key -out /opt/app/certs/app.crt 2>/dev/null
     chmod 644 /opt/app/certs/app.crt
 fi
@@ -48,8 +59,14 @@ if [ "$RESOLVED" = false ] && [ -n "${UID0_USER:-}" ] && ! grep -q "^${UID0_USER
     echo "${UID0_USER}:x:0:0:uid0 de laboratório:/root:/bin/sh" >> /etc/passwd
 fi
 
-exec /usr/sbin/sshd -D -e \
-    -o PasswordAuthentication=no \
-    -o KbdInteractiveAuthentication=no \
-    -o PermitRootLogin=no \
-    -o AllowUsers=collector
+# Diretório de privilege separation (Debian/Ubuntu antigos não criam fora do init)
+mkdir -p /var/run/sshd /run/sshd 2>/dev/null || true
+
+set -- -D -e -o PasswordAuthentication=no -o PermitRootLogin=no -o AllowUsers=collector
+# KbdInteractiveAuthentication não existe em todo sshd antigo: só passa se o sshd aceitar
+if /usr/sbin/sshd -t -o KbdInteractiveAuthentication=no 2>/dev/null; then
+    set -- "$@" -o KbdInteractiveAuthentication=no
+else
+    set -- "$@" -o ChallengeResponseAuthentication=no
+fi
+exec /usr/sbin/sshd "$@"

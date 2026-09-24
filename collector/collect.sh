@@ -128,13 +128,25 @@ filter_dir_mounts() {
 
 # --- seções de coleta --------------------------------------------------------
 
+# Nome da distribuição. /etc/os-release só existe a partir de ~2012: CentOS 6,
+# RHEL 5/6, SLES 11 e similares só têm os arquivos antigos. $1 = raiz (testes).
+os_pretty() {
+    _root=${1:-}
+    if [ -r "$_root/etc/os-release" ]; then
+        sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' "$_root/etc/os-release"
+    elif [ -r "$_root/etc/redhat-release" ]; then
+        head -n 1 "$_root/etc/redhat-release"
+    elif [ -r "$_root/etc/SuSE-release" ]; then
+        head -n 1 "$_root/etc/SuSE-release"
+    elif [ -r "$_root/etc/debian_version" ]; then
+        printf 'Debian %s\n' "$(head -n 1 "$_root/etc/debian_version")"
+    fi
+}
+
 collect_meta() {
     _os=$(uname -s)
-    _rel=""
-    if [ -r /etc/os-release ]; then
-        _rel=$(sed -n 's/^PRETTY_NAME="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/os-release)
-    fi
-    [ -n "$_rel" ] || _rel=$(uname -r)
+    _rel=$(os_pretty)
+    [ -n "$_rel" ] || _rel=$(uname -r)   # HP-UX: B.11.31
     emit META "$SCHEMA_VERSION" "$(uname -n)" "$_os" "$_rel" "$(uname -r)" \
         "$(uname -m)" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
 }

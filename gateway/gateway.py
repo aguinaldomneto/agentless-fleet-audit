@@ -11,7 +11,8 @@ Somente biblioteca padrão do Python + cliente OpenSSH.
   GET  /health                 -> 200 {"status": "ok"}
   POST /collect  (X-Gateway-Token)
        {"host_id": 1, "address": "target-alpine", "port": 22,
-        "user": "collector", "cert_paths": "/opt/app/certs"}
+        "user": "collector", "cert_paths": "/opt/app/certs",
+        "ssh_profile": "modern"}          # opcional; "legacy" p/ OpenSSH < 6.5
     -> 200 {"host_id", "ok", "exit_code", "duration_ms", "stdout", "stderr",
             "error_summary"}
 
@@ -29,7 +30,20 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 TOKEN = os.environ.get("GATEWAY_TOKEN", "")
-SSH_KEY = os.environ.get("SSH_KEY", "/keys/collector")
+SSH_KEY = os.environ.get("SSH_KEY", "/keys/collector")                  # ed25519
+SSH_KEY_LEGACY = os.environ.get("SSH_KEY_LEGACY", "/keys/collector_rsa")  # RSA 3072
+
+# Perfis de SSH por host. Servidor OpenSSH < 6.5 (Ubuntu 12.04, CentOS 6, HP-UX e
+# AIX antigos) não conhece ed25519. Com chave RSA, servidor < 7.2 só aceita a
+# assinatura ssh-rsa (SHA-1), que o cliente atual desliga por padrão; e servidor
+# < 5.7 só tem chave de host RSA/DSA. O perfil legacy libera ssh-rsa SÓ para os
+# hosts marcados assim no banco; o resto da frota segue os padrões atuais.
+PROFILES = {
+    "modern": {"key": SSH_KEY, "opts": []},
+    "legacy": {"key": SSH_KEY_LEGACY,
+               "opts": ["-o", "HostKeyAlgorithms=+ssh-rsa",
+                        "-o", "PubkeyAcceptedAlgorithms=+ssh-rsa"]},
+}
 SCRIPT = os.environ.get("COLLECT_SCRIPT", "/collector/collect.sh")
 KNOWN_HOSTS = os.environ.get("KNOWN_HOSTS", "/state/known_hosts")
 # accept-new = confia na 1ª conexão e depois exige a mesma chave (TOFU).
@@ -57,6 +71,7 @@ def validate(req):
         port = int(req.get("port", 22))
         user = str(req.get("user", "collector"))
         paths = str(req.get("cert_paths") or "").split()
+        profile = str(req.get("ssh_profile") or "modern")
     except (KeyError, TypeError, ValueError) as exc:
         raise BadRequest(f"payload inválido: {exc}") from None
     if not HOST_RE.match(address):
@@ -68,13 +83,16 @@ def validate(req):
     for p in paths:
         if not PATH_RE.match(p) or ".." in p.split("/"):
             raise BadRequest(f"cert_path inválido: {p}")
-    return host_id, address, port, user, paths
+    if profile not in PROFILES:
+        raise BadRequest("ssh_profile inválido")
+    return host_id, address, port, user, paths, profile
 
 
-def build_ssh_cmd(address, port, user, paths):
+def build_ssh_cmd(address, port, user, paths, profile="modern"):
     remote = "sh -s --" + "".join(" " + shlex.quote(p) for p in paths)
+    prof = PROFILES[profile]
     return [
-        "ssh", "-i", SSH_KEY, "-p", str(port),
+        "ssh", "-i", prof["key"], "-p", str(port), *prof["opts"],
         "-o", "BatchMode=yes",              # nunca pede senha/confirmação
         "-o", "IdentitiesOnly=yes",
         "-o", "ConnectTimeout=10",
@@ -87,9 +105,9 @@ def build_ssh_cmd(address, port, user, paths):
     ]
 
 
-def collect(host_id, address, port, user, paths):
+def collect(host_id, address, port, user, paths, profile="modern"):
     started = time.monotonic()
-    cmd = build_ssh_cmd(address, port, user, paths)
+    cmd = build_ssh_cmd(address, port, user, paths, profile)
     try:
         with open(SCRIPT, "rb") as script:
             proc = subprocess.run(cmd, stdin=script, capture_output=True, timeout=TIMEOUT)

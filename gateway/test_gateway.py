@@ -14,7 +14,14 @@ def req(**over):
 class Validate(unittest.TestCase):
     def test_ok(self):
         self.assertEqual(gw.validate(req()),
-                         (1, "target-alpine", 22, "collector", ["/opt/app/certs"]))
+                         (1, "target-alpine", 22, "collector", ["/opt/app/certs"], "modern"))
+
+    def test_perfil_ssh(self):
+        self.assertEqual(gw.validate(req(ssh_profile="legacy"))[5], "legacy")
+        self.assertEqual(gw.validate(req(ssh_profile=None))[5], "modern")
+        for bad in ["LEGACY", "-oProxyCommand=id", "insecure"]:
+            with self.assertRaises(gw.BadRequest, msg=bad):
+                gw.validate(req(ssh_profile=bad))
 
     def test_cert_paths_vazio(self):
         self.assertEqual(gw.validate(req(cert_paths=""))[4], [])
@@ -44,6 +51,16 @@ class Command(unittest.TestCase):
         cmd = gw.build_ssh_cmd("h", 22, "collector", ["/a", "/b c"])
         self.assertEqual(cmd[-3:], ["--", "h", "sh -s -- /a '/b c'"])
         self.assertIn("BatchMode=yes", cmd)
+
+    def test_legado_so_no_host_marcado(self):
+        moderno = gw.build_ssh_cmd("h", 22, "collector", [])
+        legado = gw.build_ssh_cmd("h", 22, "collector", [], "legacy")
+        self.assertNotIn("PubkeyAcceptedAlgorithms=+ssh-rsa", moderno)
+        self.assertIn(gw.SSH_KEY, moderno)
+        self.assertIn("PubkeyAcceptedAlgorithms=+ssh-rsa", legado)
+        self.assertIn("HostKeyAlgorithms=+ssh-rsa", legado)
+        self.assertIn(gw.SSH_KEY_LEGACY, legado)
+        self.assertEqual(legado[-3:], ["--", "h", "sh -s --"])
 
 
 class Summary(unittest.TestCase):

@@ -35,7 +35,7 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT id, name, address, port, ssh_user, cert_paths\nFROM hosts\nWHERE enabled\nORDER BY id;",
+        "query": "SELECT id, name, address, port, ssh_user, cert_paths, ssh_profile\nFROM hosts\nWHERE enabled\nORDER BY id;",
         "options": {}
       },
       "id": "c09517c6-be03-5f28-bca7-848e7f03d7fe",
@@ -62,7 +62,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ host_id: $json.id, address: $json.address, port: $json.port, user: $json.ssh_user, cert_paths: $json.cert_paths }) }}",
+        "jsonBody": "={{ JSON.stringify({ host_id: $json.id, address: $json.address, port: $json.port, user: $json.ssh_user, cert_paths: $json.cert_paths, ssh_profile: $json.ssh_profile }) }}",
         "options": {
           "timeout": 120000
         }

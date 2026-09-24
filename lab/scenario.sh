@@ -7,25 +7,26 @@ set -eu
 action=${1:-}
 case $action in resolve|break) ;; *) echo "uso: $0 resolve|break" >&2; exit 2 ;; esac
 
-targets=$(docker compose --profile fleet ps --services --status running \
-          | grep -E '^(target-|web-|db-|app-|bkp-)' || true)
+COMPOSE="docker compose --profile fleet --profile legacy"
+targets=$($COMPOSE ps --services --status running \
+          | grep -E '^(target-|web-|db-|app-|bkp-|ubuntu-|centos-)' || true)
 if [ -z "$targets" ]; then echo "nenhum alvo em execução" >&2; exit 1; fi
 
 for s in $targets; do
     if [ "$action" = resolve ]; then
         # shellcheck disable=SC2016  # expandido dentro do container
-        docker compose --profile fleet exec -T "$s" sh -c '
-            touch "/lab-state/$(hostname)/resolved"
+        $COMPOSE exec -T "$s" sh -c '
+            touch "/lab-state/$(uname -n)/resolved"
             rm -f /data/fill.bin
             if [ -n "${UID0_USER:-}" ]; then sed -i "/^${UID0_USER}:/d" /etc/passwd; fi
-            openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=$(hostname).lab.local" \
+            openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=$(uname -n).lab.local" \
                 -keyout /opt/app/certs/app.key -out /opt/app/certs/app.crt 2>/dev/null
             chmod 644 /opt/app/certs/app.crt'
         echo "$s: resolvido"
     else
         # shellcheck disable=SC2016
-        docker compose --profile fleet exec -T "$s" sh -c 'rm -f "/lab-state/$(hostname)/resolved" /opt/app/certs/app.crt'
-        docker compose --profile fleet restart "$s" >/dev/null
+        $COMPOSE exec -T "$s" sh -c 'rm -f "/lab-state/$(uname -n)/resolved" /opt/app/certs/app.crt'
+        $COMPOSE restart "$s" >/dev/null
         echo "$s: cenário de demonstração restaurado"
     fi
 done

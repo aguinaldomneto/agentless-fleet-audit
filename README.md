@@ -63,6 +63,7 @@ Cada alerta aberto vem com os botões **✅ Reconhecer** (pausa os lembretes at�
 | **Gateway separado com a chave SSH** | O n8n nunca tem a chave. Se ele for comprometido, não vira um trampolim de SSH para a frota. Entrada validada contra injeção de opções do ssh. |
 | **Ingestão numa função SQL** | Parse e regras rodam em **uma transação**: nada fica gravado pela metade. A saída bruta fica em `collection_runs` para auditoria e reprocessamento. |
 | **Só coleta completa "apaga" ou resolve** | Saída truncada nunca remove usuário/certificado do inventário nem fecha alerta. Ausência de dado não é prova de que o problema sumiu. |
+| **Perfil de SSH por host** | Legado exige algoritmo fraco (ssh-rsa/SHA-1). Em vez de afrouxar o cliente para a frota inteira, cada host declara `modern` ou `legacy` no banco; chave RSA separada da ed25519. |
 | **`StrictHostKeyChecking=accept-new`** | Confia na primeira conexão e depois exige a mesma chave de host. Chave mudou (reinstalação ou MITM) = coleta falha e vira alerta crítico. |
 | **Alerta de recuperação** | Achado resolvido gera aviso de "resolved", mas só se o alerta original chegou a ser enviado. |
 | **Configuração de ambiente no banco** | `chat_id` do Telegram fica na tabela `settings`: o workflow versionado é o mesmo em qualquer ambiente e o repositório público não expõe dados pessoais. |
@@ -127,6 +128,25 @@ Para uma frota maior, `make fleet-up` sobe mais 6 servidores, cada um com um cen
 
 Cada alvo é só um `sshd` ocioso (poucos MB de RAM).
 
+### Alvos legados
+
+`make legacy-up` sobe dois servidores com userland antigo (o kernel é o do WSL, então `uname -r` mostra kernel moderno; só o sistema em cima dele é legado):
+
+| Host | Sistema | OpenSSH | O que demonstra |
+|---|---|---|---|
+| ubuntu-12 | Ubuntu 12.04 (EOL 2017) | 5.9 | não conhece ed25519: coletado com o perfil `legacy` |
+| centos-7 | CentOS 7 (EOL 2024) | 7.4 | antigo, mas já fala ed25519: perfil `modern`, sem relaxar nada |
+
+Cada host tem `ssh_profile` no banco. O perfil `legacy` usa uma chave RSA separada e libera `ssh-rsa` (SHA-1) **só para aquele host**; a frota moderna continua com os padrões do OpenSSH atual. Para ver o problema real que isso resolve:
+
+```sh
+docker compose exec postgres psql -U inventory_rw -d inventory -c "UPDATE hosts SET ssh_profile='modern' WHERE name='ubuntu-12';"
+# próxima coleta: "Permission denied (publickey)" -> alerta CRÍTICO de falha de SSH
+docker compose exec postgres psql -U inventory_rw -d inventory -c "UPDATE hosts SET ssh_profile='legacy' WHERE name='ubuntu-12';"
+```
+
+O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RHEL 5/6, SLES 11): cai para `redhat-release`, `SuSE-release` ou `debian_version`.
+
 `make lab-resolve` corrige todos os cenários de uma vez (para ver recuperação, "EVENTO RESOLVIDO" e o chamado do Jira sendo fechado) e grava um marcador para o alvo continuar saudável mesmo depois de reiniciar. `make lab-break` volta tudo ao estado de demonstração. As chaves de host dos alvos ficam em `lab/state/` (fora do Git), então recriar um container não parece ataque *man-in-the-middle* para o gateway.
 
 ## Limitações conhecidas
@@ -147,4 +167,6 @@ Cada alvo é só um `sshd` ocioso (poucos MB de RAM).
 - [x] Três severidades com lembrete recorrente (1h/3h/8h) e botões Reconhecer/Silenciar no Telegram
 - [x] Laboratório com 9 servidores e cenários variados (`make fleet-up`)
 - [x] n8n provisionado sem clique: credenciais do `.env`, workflows importados e publicados
+- [x] Alvos legados (Ubuntu 12.04 / OpenSSH 5.9, CentOS 7) com perfil de SSH por host
+- [ ] Postgres 17 (o n8n já avisa que o 16 tem só suporte de compatibilidade)
 - [ ] Terraform: mesmo stack em VM na nuvem

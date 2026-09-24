@@ -61,6 +61,7 @@ services:
     volumes:
       - ./collector:/collector:ro
       - ./lab/keys/collector:/keys/collector:ro
+      - ./lab/keys/collector_rsa:/keys/collector_rsa:ro   # só p/ hosts legacy
       - gatewaystate:/state                # known_hosts (TOFU)
     networks: [lab]                        # sem porta publicada
 
@@ -164,6 +165,26 @@ services:
     profiles: [fleet]
     build: { context: ./lab/target, dockerfile: Dockerfile.rocky }
     hostname: bkp-01
+    environment: { CERT_DAYS: "365" }
+
+  # --- alvos legados (opcional): make legacy-up / make legacy-down ----------
+  # Userland antigo com o kernel do WSL (uname mostra kernel moderno).
+  ubuntu-12:  # Ubuntu 12.04, OpenSSH 5.9: não conhece ed25519 -> ssh_profile=legacy
+    <<: *target
+    profiles: [legacy]
+    build: { context: ./lab/target, dockerfile: Dockerfile.ubuntu12 }
+    hostname: ubuntu-12
+    environment: { CERT_DAYS: "365" }
+    volumes:
+      - ./lab/keys/collector.pub:/keys/collector.pub:ro
+      - ./lab/keys/collector_rsa.pub:/keys/collector_rsa.pub:ro
+      - ./lab/state:/lab-state
+
+  centos-7:   # CentOS 7, OpenSSH 7.4: velho, mas já fala ed25519 -> perfil modern
+    <<: *target
+    profiles: [legacy]
+    build: { context: ./lab/target, dockerfile: Dockerfile.centos7 }
+    hostname: centos-7
     environment: { CERT_DAYS: "365" }
 
 networks:
