@@ -1,0 +1,9 @@
+# Copie para terraform.tfvars (fica fora do Git) e preencha.
+
+# Seu IP público com /32:  curl -s ifconfig.me
+allowed_ssh_cidr = "200.1.2.3/32"
+
+# region              = "us-east-1"        # mais barata; sa-east-1 = São Paulo
+# aws_profile         = "fleet-audit"
+# ssh_public_key_path = "~/.ssh/oci_lab.pub"
+# instance_state      = "running"          # "stopped" para economizar crédito

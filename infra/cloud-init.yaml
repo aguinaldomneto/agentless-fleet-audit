@@ -15,4 +15,4 @@ runcmd:
   - sudo -u ubuntu git clone --branch "${repo_ref}" "${repo_url}" /home/ubuntu/agentless-fleet-audit
   - sudo -u ubuntu make -C /home/ubuntu/agentless-fleet-audit env keys
   - touch /var/lib/cloud/instance/fleet-audit-pronto
-final_message: "fleet-audit: VM pronta em $UPTIME s. Próximo passo no README (infra/oci)."
+final_message: "fleet-audit: VM pronta em $UPTIME s. Próximo passo no README (seção Nuvem)."

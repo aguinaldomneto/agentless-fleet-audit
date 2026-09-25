@@ -44,7 +44,7 @@ resource "oci_core_instance" "lab" {
 
     # Segredos NÃO passam por aqui: user_data fica legível nos metadados e o
     # tfstate guarda tudo em texto. O .env é gerado dentro da VM (make env).
-    user_data = base64encode(templatefile("${path.module}/cloud-init.yaml", {
+    user_data = base64encode(templatefile("${path.module}/../cloud-init.yaml", {
       repo_url = var.repo_url
       repo_ref = var.repo_ref
     }))

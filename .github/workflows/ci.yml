@@ -111,9 +111,14 @@ jobs:
   terraform:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: [infra/aws, infra/oci]
+    name: terraform (${{ matrix.dir }})
     defaults:
       run:
-        working-directory: infra/oci
+        working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@v5
       - uses: hashicorp/setup-terraform@v3
