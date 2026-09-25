@@ -4,3 +4,7 @@ lab/keys/*
 __pycache__/
 lab/state/
 backups/
+infra/**/.terraform/
+infra/**/*.tfstate*
+infra/**/terraform.tfvars
+infra/**/*.pem

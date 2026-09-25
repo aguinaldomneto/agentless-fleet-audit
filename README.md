@@ -150,6 +150,31 @@ O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RH
 
 `make lab-resolve` corrige todos os cenários de uma vez (para ver recuperação, "EVENTO RESOLVIDO" e o chamado do Jira sendo fechado) e grava um marcador para o alvo continuar saudável mesmo depois de reiniciar. `make lab-break` volta tudo ao estado de demonstração. As chaves de host dos alvos ficam em `lab/state/` (fora do Git), então recriar um container não parece ataque *man-in-the-middle* para o gateway.
 
+## Nuvem (Terraform, Oracle Cloud Always Free)
+
+`infra/oci/` cria **uma VM ARM (Ampere A1, 2 OCPU / 12 GB)** com rede própria e sobe o mesmo laboratório. Custo zero dentro do Always Free.
+
+| Decisão | Motivo |
+|---|---|
+| Só a porta 22 aberta, e só para o seu IP | n8n e Grafana continuam em `127.0.0.1`; acesso por túnel SSH. Nada do laboratório fica exposto na internet. |
+| Segredos fora do Terraform | `user_data` fica legível nos metadados da VM e o `tfstate` guarda tudo em texto. O `.env` é gerado **dentro** da VM (`make env`); tokens entram por SSH. |
+| Metadados só v2 | `are_legacy_imds_endpoints_disabled`: o equivalente ao IMDSv2 da AWS. |
+| Imagem nova não recria a VM | `ignore_changes` na imagem: uma atualização da Oracle não apaga o laboratório num `apply`. |
+| `validate` no CI | `fmt` + `validate` a cada push, sem credenciais e sem criar recurso. |
+
+```sh
+cd infra/oci
+cp terraform.tfvars.example terraform.tfvars   # preencha (OCIDs, chave de API, seu IP /32)
+terraform init && terraform plan
+terraform apply
+ssh ubuntu@<ip>                                # nano agentless-fleet-audit/.env (TELEGRAM_BOT_TOKEN, JIRA_*)
+                                               # cd agentless-fleet-audit && make up
+$(terraform output -raw tunel)                 # n8n em localhost:5678, Grafana em localhost:3000
+terraform destroy                              # remove tudo
+```
+
+Limitações da nuvem: a VM é **ARM**, e a imagem do Ubuntu 12.04 só existe para x86, então `ubuntu-12` não sobe lá (o `centos-7` sobe). A Oracle pode **recuperar instâncias ociosas** do Always Free (CPU, rede e memória abaixo de 20% por 7 dias); com o laboratório completo a memória fica acima disso. Em regiões concorridas, a criação pode falhar com *Out of host capacity*: tente outro `availability_domain_index` ou mais tarde.
+
 ## Operação
 
 ```sh
@@ -178,4 +203,4 @@ make lab-resolve    # corrige os cenários de demonstração / make lab-break vo
 - [x] n8n provisionado sem clique: credenciais do `.env`, workflows importados e publicados
 - [x] Alvos legados (Ubuntu 12.04 / OpenSSH 5.9, CentOS 7) com perfil de SSH por host
 - [x] Postgres 16 → 17 com `make pg-upgrade` (dump/restore verificado, rollback automático)
-- [ ] Terraform: mesmo stack em VM na nuvem
+- [x] Terraform: mesmo stack numa VM ARM na Oracle Cloud (Always Free), só SSH exposto

@@ -1,0 +1,18 @@
+#cloud-config
+# Prepara a VM; NÃO sobe o laboratório. Os tokens (Telegram, Jira) são colocados
+# à mão no .env via SSH, para nunca passarem pelo Terraform nem pelos metadados.
+package_update: true
+packages:
+  - docker.io
+  - docker-compose-v2
+  - git
+  - make
+  - openssl
+  - python3
+runcmd:
+  - systemctl enable --now docker
+  - usermod -aG docker ubuntu
+  - sudo -u ubuntu git clone --branch "${repo_ref}" "${repo_url}" /home/ubuntu/agentless-fleet-audit
+  - sudo -u ubuntu make -C /home/ubuntu/agentless-fleet-audit env keys
+  - touch /var/lib/cloud/instance/fleet-audit-pronto
+final_message: "fleet-audit: VM pronta em $UPTIME s. Próximo passo no README (infra/oci)."

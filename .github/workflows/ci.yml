@@ -107,3 +107,18 @@ jobs:
           assert uids == {"inventory"}, uids
           print(len(d["panels"]), "painéis ok")
           PY
+
+  terraform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: infra/oci
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.13.3", terraform_wrapper: false }
+      - name: formatação
+        run: terraform fmt -check -recursive -diff
+      - name: validate (sem credenciais, sem criar nada)
+        run: terraform init -backend=false -input=false && terraform validate

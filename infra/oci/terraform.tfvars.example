@@ -1,0 +1,12 @@
+# Copie para terraform.tfvars (fica fora do Git) e preencha.
+tenancy_ocid     = "ocid1.tenancy.oc1..aaaa..."
+user_ocid        = "ocid1.user.oc1..aaaa..."
+fingerprint      = "aa:bb:cc:..."
+private_key_path = "~/.oci/oci_api_key.pem"
+region           = "sa-saopaulo-1"
+
+# Seu IP público com /32:  curl -s ifconfig.me
+allowed_ssh_cidr = "200.1.2.3/32"
+
+# ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+# availability_domain_index = 0   # troque se der "Out of host capacity"
