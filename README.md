@@ -102,6 +102,7 @@ Um segundo workflow (`fleet-audit: mudanças no Jira`) observa o que um **analis
 | **Versões fixas** | n8n e Grafana com tag exata: `latest` mudou a interface do n8n no meio do projeto. Atualização é decisão, não acidente. |
 | **Code node com teste** | JavaScript do n8n vive em `n8n/code/*.js`, com teste em Node e checagem no CI de que o JSON está sincronizado. |
 | **Privilégio mínimo** | `inventory_rw` para o n8n, `grafana_ro` só leitura, portas expostas apenas em `127.0.0.1`. |
+| **Rede dos alvos separada do plano de controle** | `postgres`/`n8n`/`grafana` ficam na rede `lab`; os servidores-alvo simulados (é isso que a ferramenta audita) ficam em `targets`. Só o `collector-gateway` está nas duas. Um alvo comprometido não alcança o banco/n8n/Grafana na camada de rede — só quem tem as duas pernas atravessa. |
 
 ## Estrutura
 

@@ -1,3 +1,7 @@
+# Tag de minor, não de patch: ao contrário do n8n/Grafana/Postgres (versão
+# exata, ver .env.example), aqui é de propósito — patch de Python/Alpine é
+# só correção de segurança, sem mudança de comportamento. Rebuild periódico
+# (sem cache) é o suficiente para pegar essas correções.
 FROM python:3.12-alpine
 RUN apk add --no-cache openssh-client \
  && addgroup -g 1000 collector && adduser -D -u 1000 -G collector collector \

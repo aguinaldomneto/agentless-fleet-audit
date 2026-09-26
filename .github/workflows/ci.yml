@@ -5,6 +5,11 @@ on:
   pull_request:
   workflow_dispatch:
 
+# GITHUB_TOKEN só com leitura: nenhum job publica release, comenta PR nem
+# escreve no repositório (e nenhum aqui usa secrets.* de qualquer forma).
+permissions:
+  contents: read
+
 # Push novo na mesma branch cancela a execução anterior (não empilha fila).
 concurrency:
   group: ci-${{ github.ref }}

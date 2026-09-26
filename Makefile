@@ -1,4 +1,8 @@
 # Atalhos do laboratório. Requer: docker compose, ssh, openssl.
+# StrictHostKeyChecking=no só serve porque isto aqui é debug manual mirando
+# 127.0.0.1:222x (containers deste laboratório). O gateway de verdade (o que
+# fala com hosts reais) nunca desliga a checagem: usa accept-new + known_hosts
+# persistido em lab/state — não copie este SSH_OPTS para apontar a um host real.
 SSH_OPTS = -i lab/keys/collector -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR
 SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PASSWORD \
            GRAFANA_ADMIN_PASSWORD N8N_ENCRYPTION_KEY GATEWAY_TOKEN BRIDGE_TOKEN

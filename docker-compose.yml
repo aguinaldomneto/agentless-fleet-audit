@@ -5,7 +5,10 @@ x-target: &target
   volumes:
     - ./lab/keys/collector.pub:/keys/collector.pub:ro
     - ./lab/state:/lab-state          # chaves de host + marcador de cenário (persistem)
-  networks: [lab]
+  # Rede separada do plano de controle: um alvo comprometido (é isso que a
+  # ferramenta audita) não alcança postgres/n8n/grafana na camada de rede,
+  # só quem tem as duas pernas (o gateway) atravessa.
+  networks: [targets]
 
 services:
   postgres:
@@ -51,7 +54,9 @@ services:
       - ./n8n/workflows:/workflows:ro      # make import-workflows
     networks: [lab]
 
-  # Único serviço com a chave SSH. O n8n pede a coleta por HTTP e nunca vê a chave.
+  # Único serviço com a chave SSH, e única perna entre as duas redes: fala
+  # HTTP com o n8n em "lab" e SSH com a frota em "targets". Se um alvo for
+  # comprometido, a rede "lab" (postgres/n8n/grafana) não é alcançável dali.
   collector-gateway:
     build: ./gateway
     restart: unless-stopped
@@ -64,7 +69,7 @@ services:
       - ./lab/keys/collector:/keys/collector:ro
       - ./lab/keys/collector_rsa:/keys/collector_rsa:ro   # só p/ hosts legacy
       - gatewaystate:/state                # known_hosts (TOFU)
-    networks: [lab]                        # sem porta publicada
+    networks: [lab, targets]               # sem porta publicada
 
   # Única peça com o token do bot. Envia as mensagens do n8n e traz os cliques
   # nos botões (long polling: não precisa de URL pública nem webhook exposto).
@@ -189,7 +194,8 @@ services:
     environment: { CERT_DAYS: "365" }
 
 networks:
-  lab: {}
+  lab: {}       # postgres, n8n, grafana, gateway, bridge
+  targets: {}   # servidores-alvo simulados; só o gateway atravessa pra "lab"
 
 volumes:
   pgdata:
