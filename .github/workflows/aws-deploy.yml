@@ -1,0 +1,90 @@
+name: aws-deploy
+# Liga/desliga a VM do laboratório na AWS a partir do GitHub, sem chave de
+# longa duração: as credenciais vêm do OIDC (github-oidc.tf assumido via
+# aws-actions/configure-aws-credentials). Pré-requisito único: rodar
+# infra/aws/github-oidc.tf uma vez, localmente, com suas credenciais reais
+# (README, seção Nuvem) e configurar as variáveis do repositório abaixo.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "up = liga (terraform apply) | down = pausa (instance_state=stopped)"
+        required: true
+        default: up
+        type: choice
+        options: [up, down]
+
+# id-token: write é o que permite o OIDC; sem ele, configure-aws-credentials
+# não tem token nenhum pra trocar por credencial da AWS.
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: aws-deploy
+  cancel-in-progress: false   # nunca cancelar um apply no meio
+
+jobs:
+  terraform:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: infra/aws
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - uses: hashicorp/setup-terraform@v3
+        with: { terraform_version: "1.13.3", terraform_wrapper: false }
+
+      # Chave pública SSH e IP liberado não são segredo (o valor sensível é a
+      # chave PRIVADA, que nunca sai da sua máquina) — variáveis normais bastam.
+      - name: preparar variáveis
+        run: |
+          printf '%s\n' "${{ vars.SSH_PUBLIC_KEY }}" > /tmp/lab_key.pub
+          test -s /tmp/lab_key.pub || { echo "defina a variável de repositório SSH_PUBLIC_KEY"; exit 1; }
+
+      - name: terraform init
+        run: |
+          terraform init -input=false \
+            -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}" \
+            -backend-config="key=fleet-audit/terraform.tfstate" \
+            -backend-config="region=${{ vars.AWS_REGION || 'us-east-1' }}" \
+            -backend-config="dynamodb_table=${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}"
+        env:
+          TF_VAR_tfstate_bucket: ${{ vars.TFSTATE_BUCKET }}
+          TF_VAR_tfstate_lock_table: ${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}
+
+      - name: terraform apply
+        run: |
+          extra=""
+          if [ "${{ inputs.action }}" = down ]; then extra="-var instance_state=stopped"; fi
+          terraform apply -input=false -auto-approve $extra
+        env:
+          TF_VAR_aws_profile: ""   # usa as credenciais do OIDC, não um profile local
+          TF_VAR_allowed_ssh_cidr: ${{ vars.ALLOWED_SSH_CIDR }}
+          TF_VAR_ssh_public_key_path: /tmp/lab_key.pub
+          TF_VAR_tfstate_bucket: ${{ vars.TFSTATE_BUCKET }}
+          TF_VAR_tfstate_lock_table: ${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}
+
+      - name: próximo passo
+        if: inputs.action == 'up'
+        run: |
+          echo "### VM ligada" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          terraform output -raw ssh    >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          terraform output -raw tunel  >> "$GITHUB_STEP_SUMMARY"
+          echo >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+        env:
+          TF_VAR_aws_profile: ""
+          TF_VAR_allowed_ssh_cidr: ${{ vars.ALLOWED_SSH_CIDR }}
+          TF_VAR_ssh_public_key_path: /tmp/lab_key.pub
+          TF_VAR_tfstate_bucket: ${{ vars.TFSTATE_BUCKET }}
+          TF_VAR_tfstate_lock_table: ${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}

@@ -7,4 +7,5 @@ backups/
 infra/**/.terraform/
 infra/**/*.tfstate*
 infra/**/terraform.tfvars
+infra/**/backend.hcl
 infra/**/*.pem

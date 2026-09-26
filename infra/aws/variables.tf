@@ -5,9 +5,32 @@ variable "region" {
 }
 
 variable "aws_profile" {
-  description = "Perfil do AWS CLI com as credenciais do usuário IAM"
+  description = "Perfil do AWS CLI com as credenciais do usuário IAM. Vazio (string sem nada) usa as credenciais do ambiente (variáveis AWS_*), como as que o OIDC do GitHub Actions injeta"
   type        = string
   default     = "fleet-audit"
+}
+
+variable "github_repo" {
+  description = "owner/repo que pode assumir o papel do GitHub Actions (github-oidc.tf)"
+  type        = string
+  default     = "aguinaldomneto/agentless-fleet-audit"
+}
+
+variable "github_ref" {
+  description = "Branch autorizada a assumir o papel do GitHub Actions (sem isso, qualquer branch/PR poderia)"
+  type        = string
+  default     = "main"
+}
+
+variable "tfstate_bucket" {
+  description = "Bucket S3 do estado remoto (criado por você fora deste Terraform; veja backend.hcl.example)"
+  type        = string
+}
+
+variable "tfstate_lock_table" {
+  description = "Tabela DynamoDB do lock do estado (criado por você fora deste Terraform)"
+  type        = string
+  default     = "fleet-audit-tflock"
 }
 
 variable "allowed_ssh_cidr" {

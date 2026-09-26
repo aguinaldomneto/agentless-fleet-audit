@@ -189,17 +189,30 @@ O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RH
 | Liga/desliga pelo Terraform | `-var instance_state=stopped`: parada, a VM não consome crédito de CPU. |
 | Imagem nova não recria a VM | `ignore_changes` na AMI: uma atualização da Canonical não apaga o laboratório num `apply`. |
 | `validate` no CI | `fmt` + `validate` das duas nuvens a cada push, sem credenciais e sem criar recurso. |
+| Estado remoto (S3 + lock no DynamoDB) | Pré-requisito pra rodar `apply` a partir do GitHub Actions sem perder o rastro do que já existe (run efêmera do runner não pode ser dona do `.tfstate` local). Bucket/tabela são criados por você, uma vez, fora deste Terraform — não dá pra este código gerenciar o próprio backend. |
+| Deploy pelo GitHub Actions via OIDC, não chave de longa duração | `github-oidc.tf` cria um papel IAM que só o workflow deste repositório (branch configurada) pode assumir, trocando um token de curta duração — nenhum `AWS_ACCESS_KEY_ID` fica guardado em lugar nenhum, nem como secret. |
 
 ```sh
 cd infra/aws
 cp terraform.tfvars.example terraform.tfvars   # seu IP /32
-terraform init && terraform plan
-terraform apply
+
+# Estado remoto (uma vez só; nome de bucket é único em toda a AWS):
+aws s3api create-bucket --bucket SEU-BUCKET-UNICO-GLOBALMENTE --region us-east-1
+aws s3api put-bucket-versioning --bucket SEU-BUCKET-UNICO-GLOBALMENTE --versioning-configuration Status=Enabled
+aws dynamodb create-table --table-name fleet-audit-tflock --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST
+cp backend.hcl.example backend.hcl             # preencha o bucket acima
+
+terraform init -backend-config=backend.hcl
+terraform plan -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE
+terraform apply -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE
 $(terraform output -raw ssh)                    # nano agentless-fleet-audit/.env (TELEGRAM_BOT_TOKEN, JIRA_*); make up
 $(terraform output -raw tunel)                  # n8n em localhost:5678, Grafana em localhost:3000
-terraform apply -var instance_state=stopped     # pausa (IP muda ao religar)
-terraform destroy                               # remove tudo
+terraform apply -var instance_state=stopped -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE  # pausa (IP muda ao religar)
+terraform destroy -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE                             # remove tudo
 ```
+
+`tfstate_bucket` é a única variável sem valor padrão (não dá pra adivinhar um nome de bucket seu); ou exporte `TF_VAR_tfstate_bucket` pra não repetir em todo comando.
 
 Isso é só para a primeira vez (o `.env` ainda não existe na VM, tokens entram à mão). Depois disso, o IP muda a cada `apply` mas o `.env` e o resto do disco continuam lá — `infra/aws/Makefile` religa e sobe tudo de novo com um comando só:
 
@@ -212,6 +225,21 @@ make down        # pausa (idêntico ao terraform apply -var instance_state=stopp
 ```
 
 Na Oracle (ARM), `ubuntu-12` não sobe: a imagem do Ubuntu 12.04 só existe para x86. Na AWS a VM é x86 e todos os alvos sobem.
+
+### Ligar/pausar pelo GitHub Actions (sem chave AWS guardada)
+
+Depois do bootstrap acima (bucket do estado remoto já existe e o primeiro `apply` já rodou), `github-oidc.tf` já criou o papel IAM. Falta só apontar o GitHub pra ele — tudo em **Settings → Secrets and variables → Actions → Variables** (nenhum destes valores é segredo, então variável comum, não secret):
+
+| Variável | Valor |
+|---|---|
+| `AWS_ROLE_ARN` | saída `github_actions_role_arn` do `terraform apply` |
+| `TFSTATE_BUCKET` | o bucket que você criou |
+| `TFSTATE_LOCK_TABLE` | `fleet-audit-tflock` (ou o que você usou) |
+| `SSH_PUBLIC_KEY` | conteúdo do seu `.pub` (`cat ~/.ssh/oci_lab.pub`) |
+| `ALLOWED_SSH_CIDR` | seu IP `/32` |
+| `AWS_REGION` | `us-east-1` (opcional; é o padrão) |
+
+Com isso configurado, a aba **Actions → aws-deploy → Run workflow** liga (`up`) ou pausa (`down`) a VM direto do GitHub, sem nada rodar na sua máquina e sem `terraform apply` interativo (o workflow usa `-auto-approve` — é uma ação deliberada de quem clica "Run workflow", não algo automático a cada push).
 
 ## Operação
 
@@ -244,3 +272,4 @@ make lab-resolve    # corrige os cenários de demonstração / make lab-break vo
 - [x] Terraform: mesmo stack numa VM na AWS (free tier) ou na Oracle Cloud (Always Free), só SSH exposto
 - [x] `.env` validado antes de rodar (`make check-env`): CRLF, espaço sobrando, token quebrado em duas linhas
 - [x] Telegram avisado em mudanças do chamado no Jira: responsável, status/fila e prioridade (`jira_watch`, *polling* a cada 5 min)
+- [x] Rede dos alvos segmentada do plano de controle (`docker-compose.yml`); deploy na AWS via GitHub Actions com OIDC, sem chave de longa duração, e estado remoto (S3 + lock no DynamoDB)

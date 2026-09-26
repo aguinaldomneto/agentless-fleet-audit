@@ -3,6 +3,11 @@
 # ssh, entra e sobe tudo" toda vez que a VM liga.
 .PHONY: up down destroy ssh bootstrap
 
+# tfstate_bucket não tem valor padrão (nome de bucket é seu, não dá pra
+# adivinhar) — lido do backend.hcl se você não exportar TF_VAR_tfstate_bucket.
+TF_VAR_tfstate_bucket ?= $(shell sed -n 's/^bucket *= *"\(.*\)"/\1/p' backend.hcl 2>/dev/null)
+export TF_VAR_tfstate_bucket
+
 up:              ## sobe/liga a VM (pede confirmação do terraform) e mostra os comandos prontos
 	terraform apply
 	@echo

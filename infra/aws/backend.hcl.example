@@ -1,0 +1,6 @@
+# Copie para backend.hcl (fica fora do Git) e preencha com o bucket que você
+# criou (README, seção Nuvem). Use com: terraform init -backend-config=backend.hcl
+bucket         = "SEU-BUCKET-UNICO-GLOBALMENTE"
+key            = "fleet-audit/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "fleet-audit-tflock"
