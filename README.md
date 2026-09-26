@@ -197,6 +197,16 @@ terraform apply -var instance_state=stopped     # pausa (IP muda ao religar)
 terraform destroy                               # remove tudo
 ```
 
+Isso é só para a primeira vez (o `.env` ainda não existe na VM, tokens entram à mão). Depois disso, o IP muda a cada `apply` mas o `.env` e o resto do disco continuam lá — `infra/aws/Makefile` religa e sobe tudo de novo com um comando só:
+
+```sh
+cd infra/aws
+make up          # terraform apply (pede confirmação) + mostra ssh/túnel prontos com o IP novo
+make bootstrap    # o mesmo apply, mas já entra por SSH e roda make up + fleet-up + legacy-up lá dentro
+make ssh          # conecta sem copiar/colar IP
+make down         # pausa (idêntico ao terraform apply -var instance_state=stopped)
+```
+
 Na Oracle (ARM), `ubuntu-12` não sobe: a imagem do Ubuntu 12.04 só existe para x86. Na AWS a VM é x86 e todos os alvos sobem.
 
 ## Operação

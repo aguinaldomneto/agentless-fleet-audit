@@ -3,6 +3,11 @@ output "public_ip" {
   value       = aws_instance.lab.public_ip
 }
 
+output "ssh_key_path" {
+  description = "Chave privada usada no acesso SSH (para scripts; make bootstrap usa este valor)"
+  value       = trimsuffix(pathexpand(var.ssh_public_key_path), ".pub")
+}
+
 output "ssh" {
   description = "Acesso SSH"
   value       = "ssh -i ${trimsuffix(pathexpand(var.ssh_public_key_path), ".pub")} ubuntu@${aws_instance.lab.public_ip}"
