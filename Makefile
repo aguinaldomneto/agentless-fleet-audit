@@ -5,7 +5,7 @@ SECRETS  = POSTGRES_PASSWORD N8N_DB_PASSWORD INVENTORY_RW_PASSWORD GRAFANA_RO_PA
 
 .PHONY: env keys up down reset migrate import-workflows test test-sql test-gateway lint fleet-up fleet-down \
         collect-debian collect-rocky collect-alpine forget-hostkeys set-chat-id set-jira import-workflow test-n8n test-bridge set-reminders \
-        n8n-wait n8n-credentials n8n-setup lab-resolve lab-break legacy-up legacy-down pg-backup pg-upgrade
+        n8n-wait n8n-credentials n8n-setup check-env lab-resolve lab-break legacy-up legacy-down pg-backup pg-upgrade
 
 env:             ## cria .env com segredos aleatórios (nunca sobrescreve)
 	@if [ -f .env ]; then echo ".env já existe, nada feito"; else \
@@ -56,7 +56,10 @@ import-workflow: n8n-wait ## importa e publica um só: make import-workflow WF=j
 	$(N8N_EXEC) n8n publish:workflow --id=$$(python3 -c "import json;print(json.load(open('n8n/workflows/$(WF).json'))['id'])")
 	docker compose restart n8n
 
-n8n-setup: n8n-credentials import-workflows ## credenciais + workflows + publicação, sem nenhum clique
+check-env:       ## valida o .env (CRLF, espaço no fim, token quebrado em duas linhas, vazio)
+	sh scripts/check-env.sh .env
+
+n8n-setup: check-env n8n-credentials import-workflows ## credenciais + workflows + publicação, sem nenhum clique
 
 forget-hostkeys: ## após recriar os alvos (chave de host nova)
 	docker compose exec collector-gateway rm -f /state/known_hosts
@@ -142,7 +145,7 @@ pg-upgrade:      ## upgrade de versão major do Postgres (dump/restore, volume n
 	sh db/pg-upgrade.sh $(IMAGE)
 
 lint:            ## shellcheck em modo POSIX
-	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh lab/scenario.sh db/00-init.sh db/migrate.sh db/pg-upgrade.sh
+	shellcheck -s sh collector/collect.sh tests/run.sh lab/gen-keys.sh lab/target/entrypoint.sh lab/scenario.sh db/00-init.sh db/migrate.sh db/pg-upgrade.sh scripts/check-env.sh
 
 # Coleta manual (sem n8n) — útil para depurar o coletor
 collect-debian:

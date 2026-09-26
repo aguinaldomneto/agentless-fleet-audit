@@ -20,6 +20,32 @@ jobs:
       - name: shellcheck (POSIX)
         run: make lint
 
+  check-env:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+      - name: .env válido tem que passar
+        run: |
+          cp .env.example .env
+          sed -i 's/^N8N_ENCRYPTION_KEY=$/N8N_ENCRYPTION_KEY=ci/; s/^GATEWAY_TOKEN=$/GATEWAY_TOKEN=ci/; s/^TELEGRAM_BOT_TOKEN=$/TELEGRAM_BOT_TOKEN=ci/; s/^BRIDGE_TOKEN=$/BRIDGE_TOKEN=ci/' .env
+          make check-env
+      - name: .env com CRLF tem que falhar
+        run: |
+          cp .env /tmp/env.crlf
+          printf 'JIRA_API_TOKEN=abc\r\n' >> /tmp/env.crlf
+          ! sh scripts/check-env.sh /tmp/env.crlf
+      - name: .env com Jira preenchido pela metade tem que falhar
+        run: |
+          cp .env /tmp/env.halfjira
+          sed -i 's/^JIRA_EMAIL=$/JIRA_EMAIL=a@b.com/' /tmp/env.halfjira
+          ! sh scripts/check-env.sh /tmp/env.halfjira
+      - name: .env com variável obrigatória vazia tem que falhar
+        run: |
+          cp .env /tmp/env.missing
+          sed -i 's/^GATEWAY_TOKEN=ci$/GATEWAY_TOKEN=/' /tmp/env.missing
+          ! sh scripts/check-env.sh /tmp/env.missing
+
   test:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
