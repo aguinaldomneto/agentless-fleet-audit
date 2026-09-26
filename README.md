@@ -189,67 +189,87 @@ O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RH
 | Liga/desliga pelo Terraform | `-var instance_state=stopped`: parada, a VM não consome crédito de CPU. |
 | Imagem nova não recria a VM | `ignore_changes` na AMI: uma atualização da Canonical não apaga o laboratório num `apply`. |
 | `validate` no CI | `fmt` + `validate` das duas nuvens a cada push, sem credenciais e sem criar recurso. |
-| Estado remoto (S3, lock nativo do S3) | Pré-requisito pra rodar `apply` a partir do GitHub Actions sem perder o rastro do que já existe (run efêmera do runner não pode ser dona do `.tfstate` local). Bucket é criado por você, uma vez, fora deste Terraform — não dá pra este código gerenciar o próprio backend. `use_lockfile` (Terraform ≥ 1.10) evita precisar de uma tabela DynamoDB só pro lock. |
-| Deploy pelo GitHub Actions via OIDC, não chave de longa duração | `github-oidc.tf` cria um papel IAM que só o workflow deste repositório (branch configurada) pode assumir, trocando um token de curta duração — nenhum `AWS_ACCESS_KEY_ID` fica guardado em lugar nenhum, nem como secret. |
+
+### Primeira vez: criar a VM
 
 ```sh
 cd infra/aws
 cp terraform.tfvars.example terraform.tfvars   # seu IP /32
-
-# Estado remoto (uma vez só; nome de bucket é único em toda a AWS):
-aws s3api create-bucket --bucket SEU-BUCKET-UNICO-GLOBALMENTE --region us-east-1 --profile fleet-audit
-aws s3api put-bucket-versioning --bucket SEU-BUCKET-UNICO-GLOBALMENTE --versioning-configuration Status=Enabled --profile fleet-audit
-cp backend.hcl.example backend.hcl             # preencha o bucket acima
-
-# O usuário IAM "só EC2" (decisão da tabela acima) não enxerga esse bucket
-# ainda — dê a ele (e só a ele, e só neste bucket) permissão de S3:
-aws sts get-caller-identity --profile fleet-audit     # confirma o ARN/nome do usuário
-aws iam put-user-policy --profile fleet-audit --user-name NOME-DO-USUARIO --policy-name fleet-audit-tfstate --policy-document '{
-  "Version": "2012-10-17",
-  "Statement": [{
-    "Effect": "Allow",
-    "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
-    "Resource": ["arn:aws:s3:::SEU-BUCKET-UNICO-GLOBALMENTE", "arn:aws:s3:::SEU-BUCKET-UNICO-GLOBALMENTE/*"]
-  }]
-}'
-
-export AWS_PROFILE=fleet-audit   # o backend S3 não herda o profile do provider "aws"; precisa deste export
-terraform init -backend-config=backend.hcl
-terraform plan -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE
-terraform apply -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE
+terraform init && terraform plan
+terraform apply
 $(terraform output -raw ssh)                    # nano agentless-fleet-audit/.env (TELEGRAM_BOT_TOKEN, JIRA_*); make up
 $(terraform output -raw tunel)                  # n8n em localhost:5678, Grafana em localhost:3000
-terraform apply -var instance_state=stopped -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE  # pausa (IP muda ao religar)
-terraform destroy -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE                             # remove tudo
 ```
 
-`tfstate_bucket` é a única variável sem valor padrão (não dá pra adivinhar um nome de bucket seu); ou exporte `TF_VAR_tfstate_bucket` pra não repetir em todo comando (`infra/aws/Makefile` já faz isso sozinho, lendo do `backend.hcl`).
+Isso basta pra ter a VM rodando com estado só local (arquivo `terraform.tfstate` ao lado destes `.tf`) — é tudo que você precisa se for operar sempre da sua própria máquina.
 
-Isso é só para a primeira vez (o `.env` ainda não existe na VM, tokens entram à mão). Depois disso, o IP muda a cada `apply` mas o `.env` e o resto do disco continuam lá — `infra/aws/Makefile` religa e sobe tudo de novo com um comando só:
+### Dia a dia: religar, conectar, pausar
+
+O IP muda a cada `apply`, mas o `.env` e o resto do disco continuam lá. `infra/aws/Makefile` cobre o ciclo sem copiar/colar nada:
 
 ```sh
 cd infra/aws
 make up          # terraform apply (pede confirmação) + mostra ssh/túnel prontos com o IP novo
 make bootstrap   # o mesmo apply, mas já entra por SSH e roda make up + fleet-up + legacy-up lá dentro
 make ssh         # conecta sem copiar/colar IP
-make down        # pausa (idêntico ao terraform apply -var instance_state=stopped)
+make down        # PARA A VM (não destrói; some o crédito de CPU, IP muda ao religar)
+make destroy     # remove a VM e a VPC de vez
 ```
 
 Na Oracle (ARM), `ubuntu-12` não sobe: a imagem do Ubuntu 12.04 só existe para x86. Na AWS a VM é x86 e todos os alvos sobem.
 
-### Ligar/pausar pelo GitHub Actions (sem chave AWS guardada)
+### Opcional: ligar/pausar pelo GitHub Actions, sem chave AWS guardada
 
-Depois do bootstrap acima (bucket do estado remoto já existe e o primeiro `apply` já rodou), `github-oidc.tf` já criou o papel IAM. Falta só apontar o GitHub pra ele — tudo em **Settings → Secrets and variables → Actions → Variables** (nenhum destes valores é segredo, então variável comum, não secret):
+Isso aqui é um passo a mais, só necessário se você quiser o botão **Actions → aws-deploy → Run workflow** (liga/pausa a VM direto do GitHub, sem rodar nada na sua máquina). Sem estes passos, a seção acima já cobre tudo — pode pular esta parte.
+
+| Decisão | Motivo |
+|---|---|
+| Estado remoto (S3, lock nativo do S3) | Uma run do GitHub Actions é efêmera — sem estado remoto, ela perderia o `.tfstate` a cada execução e o próximo `apply` (seu ou do CI) tentaria recriar a VPC/VM do zero. Bucket é criado por você, uma vez, fora deste Terraform. `use_lockfile` (Terraform ≥ 1.10) evita precisar de uma tabela DynamoDB só pro lock. |
+| Deploy via OIDC, não chave de longa duração | `github-oidc.tf` cria um papel IAM que só o workflow deste repositório (branch configurada) pode assumir, trocando um token de curta duração — nenhum `AWS_ACCESS_KEY_ID` fica guardado em lugar nenhum, nem como secret. |
+
+**1. Bucket do estado remoto** (nome é único em toda a AWS; sugestão: acrescente seu account ID, `aws sts get-caller-identity`):
+```sh
+aws s3api create-bucket --bucket SEU-BUCKET-UNICO --region us-east-1 --profile fleet-audit
+aws s3api put-bucket-versioning --bucket SEU-BUCKET-UNICO --versioning-configuration Status=Enabled --profile fleet-audit
+```
+
+**2. Dar ao usuário IAM "só EC2" permissão de S3, só neste bucket.** Ele não pode se autorizar sozinho (não tem `iam:PutUserPolicy`) — rode isto com a conta que **criou** esse usuário (root ou admin), pelo console é mais simples: IAM → Usuários → o seu usuário → Permissões → Adicionar permissões → Criar política em linha → editor JSON:
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
+    "Resource": ["arn:aws:s3:::SEU-BUCKET-UNICO", "arn:aws:s3:::SEU-BUCKET-UNICO/*"]
+  }]
+}
+```
+
+**3. Migrar o estado local pro bucket** (a VM já existe, é uma migração, não uma criação):
+```sh
+cd infra/aws
+cp backend.hcl.example backend.hcl              # preencha o bucket do passo 1
+export AWS_PROFILE=fleet-audit                  # o backend S3 não herda o profile do provider "aws" — precisa deste export
+terraform init -backend-config=backend.hcl      # pergunta se copia o estado local pro S3: responda "yes"
+```
+
+**4. Criar o papel IAM do OIDC** (as próximas `terraform apply` já não precisam mais do `export`/`-var tfstate_bucket`: o `infra/aws/Makefile` lê os dois sozinho, do `backend.hcl`):
+```sh
+make up
+```
+Guarde a saída `github_actions_role_arn` do `apply` — é o valor da variável `AWS_ROLE_ARN` abaixo.
+
+**5. Configurar o GitHub** — **Settings → Secrets and variables → Actions → Variables** (nenhum destes valores é segredo, então variável comum, não secret):
 
 | Variável | Valor |
 |---|---|
-| `AWS_ROLE_ARN` | saída `github_actions_role_arn` do `terraform apply` |
-| `TFSTATE_BUCKET` | o bucket que você criou |
+| `AWS_ROLE_ARN` | saída `github_actions_role_arn` do passo 4 |
+| `TFSTATE_BUCKET` | o bucket do passo 1 |
 | `SSH_PUBLIC_KEY` | conteúdo do seu `.pub` (`cat ~/.ssh/oci_lab.pub`) |
 | `ALLOWED_SSH_CIDR` | seu IP `/32` |
 | `AWS_REGION` | `us-east-1` (opcional; é o padrão) |
 
-Com isso configurado, a aba **Actions → aws-deploy → Run workflow** liga (`up`) ou pausa (`down`) a VM direto do GitHub, sem nada rodar na sua máquina e sem `terraform apply` interativo (o workflow usa `-auto-approve` — é uma ação deliberada de quem clica "Run workflow", não algo automático a cada push).
+Pronto: **Actions → aws-deploy → Run workflow** liga (`up`) ou pausa (`down`) a VM. O workflow usa `-auto-approve` — é a ação deliberada de quem clica "Run workflow", não algo automático a cada push.
 
 ## Operação
 
