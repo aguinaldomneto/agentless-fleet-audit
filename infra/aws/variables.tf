@@ -27,12 +27,6 @@ variable "tfstate_bucket" {
   type        = string
 }
 
-variable "tfstate_lock_table" {
-  description = "Tabela DynamoDB do lock do estado (criado por você fora deste Terraform)"
-  type        = string
-  default     = "fleet-audit-tflock"
-}
-
 variable "allowed_ssh_cidr" {
   description = "Único endereço liberado na porta 22, no formato x.x.x.x/32 (curl -s ifconfig.me)"
   type        = string

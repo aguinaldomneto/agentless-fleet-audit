@@ -92,26 +92,21 @@ data "aws_iam_policy_document" "github_actions" {
     resources = ["*"]
   }
 
-  # Estado remoto (backend.tf): ler/gravar o .tfstate e o lock.
+  # Estado remoto (backend.tf): ler/gravar o .tfstate e o arquivo de lock
+  # nativo do S3 (use_lockfile) — sem DynamoDB.
   statement {
     sid    = "TerraformStateS3"
     effect = "Allow"
     actions = [
       "s3:GetObject",
       "s3:PutObject",
+      "s3:DeleteObject",
       "s3:ListBucket",
     ]
     resources = [
       "arn:aws:s3:::${var.tfstate_bucket}",
       "arn:aws:s3:::${var.tfstate_bucket}/*",
     ]
-  }
-
-  statement {
-    sid       = "TerraformStateLock"
-    effect    = "Allow"
-    actions   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:DeleteItem"]
-    resources = ["arn:aws:dynamodb:*:*:table/${var.tfstate_lock_table}"]
   }
 }
 

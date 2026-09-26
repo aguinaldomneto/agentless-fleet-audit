@@ -8,6 +8,11 @@
 TF_VAR_tfstate_bucket ?= $(shell sed -n 's/^bucket *= *"\(.*\)"/\1/p' backend.hcl 2>/dev/null)
 export TF_VAR_tfstate_bucket
 
+# O backend S3 tem cadeia de credenciais própria (não herda var.aws_profile,
+# que só vale para o provider) — sem isto aqui, terraform tenta IMDS e falha.
+AWS_PROFILE ?= fleet-audit
+export AWS_PROFILE
+
 up:              ## sobe/liga a VM (pede confirmação do terraform) e mostra os comandos prontos
 	terraform apply
 	@echo

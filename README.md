@@ -189,7 +189,7 @@ O coletor também foi ajustado para sistemas sem `/etc/os-release` (CentOS 6, RH
 | Liga/desliga pelo Terraform | `-var instance_state=stopped`: parada, a VM não consome crédito de CPU. |
 | Imagem nova não recria a VM | `ignore_changes` na AMI: uma atualização da Canonical não apaga o laboratório num `apply`. |
 | `validate` no CI | `fmt` + `validate` das duas nuvens a cada push, sem credenciais e sem criar recurso. |
-| Estado remoto (S3 + lock no DynamoDB) | Pré-requisito pra rodar `apply` a partir do GitHub Actions sem perder o rastro do que já existe (run efêmera do runner não pode ser dona do `.tfstate` local). Bucket/tabela são criados por você, uma vez, fora deste Terraform — não dá pra este código gerenciar o próprio backend. |
+| Estado remoto (S3, lock nativo do S3) | Pré-requisito pra rodar `apply` a partir do GitHub Actions sem perder o rastro do que já existe (run efêmera do runner não pode ser dona do `.tfstate` local). Bucket é criado por você, uma vez, fora deste Terraform — não dá pra este código gerenciar o próprio backend. `use_lockfile` (Terraform ≥ 1.10) evita precisar de uma tabela DynamoDB só pro lock. |
 | Deploy pelo GitHub Actions via OIDC, não chave de longa duração | `github-oidc.tf` cria um papel IAM que só o workflow deste repositório (branch configurada) pode assumir, trocando um token de curta duração — nenhum `AWS_ACCESS_KEY_ID` fica guardado em lugar nenhum, nem como secret. |
 
 ```sh
@@ -197,12 +197,23 @@ cd infra/aws
 cp terraform.tfvars.example terraform.tfvars   # seu IP /32
 
 # Estado remoto (uma vez só; nome de bucket é único em toda a AWS):
-aws s3api create-bucket --bucket SEU-BUCKET-UNICO-GLOBALMENTE --region us-east-1
-aws s3api put-bucket-versioning --bucket SEU-BUCKET-UNICO-GLOBALMENTE --versioning-configuration Status=Enabled
-aws dynamodb create-table --table-name fleet-audit-tflock --attribute-definitions AttributeName=LockID,AttributeType=S \
-  --key-schema AttributeName=LockID,KeyType=HASH --billing-mode PAY_PER_REQUEST
+aws s3api create-bucket --bucket SEU-BUCKET-UNICO-GLOBALMENTE --region us-east-1 --profile fleet-audit
+aws s3api put-bucket-versioning --bucket SEU-BUCKET-UNICO-GLOBALMENTE --versioning-configuration Status=Enabled --profile fleet-audit
 cp backend.hcl.example backend.hcl             # preencha o bucket acima
 
+# O usuário IAM "só EC2" (decisão da tabela acima) não enxerga esse bucket
+# ainda — dê a ele (e só a ele, e só neste bucket) permissão de S3:
+aws sts get-caller-identity --profile fleet-audit     # confirma o ARN/nome do usuário
+aws iam put-user-policy --profile fleet-audit --user-name NOME-DO-USUARIO --policy-name fleet-audit-tfstate --policy-document '{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject", "s3:ListBucket"],
+    "Resource": ["arn:aws:s3:::SEU-BUCKET-UNICO-GLOBALMENTE", "arn:aws:s3:::SEU-BUCKET-UNICO-GLOBALMENTE/*"]
+  }]
+}'
+
+export AWS_PROFILE=fleet-audit   # o backend S3 não herda o profile do provider "aws"; precisa deste export
 terraform init -backend-config=backend.hcl
 terraform plan -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE
 terraform apply -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE
@@ -212,7 +223,7 @@ terraform apply -var instance_state=stopped -var tfstate_bucket=SEU-BUCKET-UNICO
 terraform destroy -var tfstate_bucket=SEU-BUCKET-UNICO-GLOBALMENTE                             # remove tudo
 ```
 
-`tfstate_bucket` é a única variável sem valor padrão (não dá pra adivinhar um nome de bucket seu); ou exporte `TF_VAR_tfstate_bucket` pra não repetir em todo comando.
+`tfstate_bucket` é a única variável sem valor padrão (não dá pra adivinhar um nome de bucket seu); ou exporte `TF_VAR_tfstate_bucket` pra não repetir em todo comando (`infra/aws/Makefile` já faz isso sozinho, lendo do `backend.hcl`).
 
 Isso é só para a primeira vez (o `.env` ainda não existe na VM, tokens entram à mão). Depois disso, o IP muda a cada `apply` mas o `.env` e o resto do disco continuam lá — `infra/aws/Makefile` religa e sobe tudo de novo com um comando só:
 
@@ -234,7 +245,6 @@ Depois do bootstrap acima (bucket do estado remoto já existe e o primeiro `appl
 |---|---|
 | `AWS_ROLE_ARN` | saída `github_actions_role_arn` do `terraform apply` |
 | `TFSTATE_BUCKET` | o bucket que você criou |
-| `TFSTATE_LOCK_TABLE` | `fleet-audit-tflock` (ou o que você usou) |
 | `SSH_PUBLIC_KEY` | conteúdo do seu `.pub` (`cat ~/.ssh/oci_lab.pub`) |
 | `ALLOWED_SSH_CIDR` | seu IP `/32` |
 | `AWS_REGION` | `us-east-1` (opcional; é o padrão) |
@@ -272,4 +282,4 @@ make lab-resolve    # corrige os cenários de demonstração / make lab-break vo
 - [x] Terraform: mesmo stack numa VM na AWS (free tier) ou na Oracle Cloud (Always Free), só SSH exposto
 - [x] `.env` validado antes de rodar (`make check-env`): CRLF, espaço sobrando, token quebrado em duas linhas
 - [x] Telegram avisado em mudanças do chamado no Jira: responsável, status/fila e prioridade (`jira_watch`, *polling* a cada 5 min)
-- [x] Rede dos alvos segmentada do plano de controle (`docker-compose.yml`); deploy na AWS via GitHub Actions com OIDC, sem chave de longa duração, e estado remoto (S3 + lock no DynamoDB)
+- [x] Rede dos alvos segmentada do plano de controle (`docker-compose.yml`); deploy na AWS via GitHub Actions com OIDC, sem chave de longa duração, e estado remoto no S3

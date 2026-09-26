@@ -10,11 +10,13 @@
 #     -backend-config="bucket=SEU-BUCKET-UNICO-GLOBALMENTE" \
 #     -backend-config="key=fleet-audit/terraform.tfstate" \
 #     -backend-config="region=us-east-1" \
-#     -backend-config="dynamodb_table=fleet-audit-tflock"   # opcional, mas recomendado
+#     -backend-config="use_lockfile=true"   # lock nativo do S3, sem DynamoDB
 #
-# O bucket (e a tabela, se usar) são criados por você, uma vez, FORA deste
-# Terraform (README, seção Nuvem): não dá pra este código gerenciar o próprio
-# backend (problema clássico do ovo e da galinha).
+# O bucket é criado por você, uma vez, FORA deste Terraform (README, seção
+# Nuvem): não dá pra este código gerenciar o próprio backend (problema
+# clássico do ovo e da galinha). O usuário/perfil IAM que roda o apply
+# precisa de GetObject/PutObject/ListBucket nesse bucket — é permissão a
+# mais além do "só EC2" original, então concedida à parte (README).
 terraform {
   backend "s3" {}
 }

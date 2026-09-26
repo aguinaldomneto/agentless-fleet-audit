@@ -55,10 +55,9 @@ jobs:
             -backend-config="bucket=${{ vars.TFSTATE_BUCKET }}" \
             -backend-config="key=fleet-audit/terraform.tfstate" \
             -backend-config="region=${{ vars.AWS_REGION || 'us-east-1' }}" \
-            -backend-config="dynamodb_table=${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}"
+            -backend-config="use_lockfile=true"
         env:
           TF_VAR_tfstate_bucket: ${{ vars.TFSTATE_BUCKET }}
-          TF_VAR_tfstate_lock_table: ${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}
 
       - name: terraform apply
         run: |
@@ -70,7 +69,6 @@ jobs:
           TF_VAR_allowed_ssh_cidr: ${{ vars.ALLOWED_SSH_CIDR }}
           TF_VAR_ssh_public_key_path: /tmp/lab_key.pub
           TF_VAR_tfstate_bucket: ${{ vars.TFSTATE_BUCKET }}
-          TF_VAR_tfstate_lock_table: ${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}
 
       - name: próximo passo
         if: inputs.action == 'up'
@@ -87,4 +85,3 @@ jobs:
           TF_VAR_allowed_ssh_cidr: ${{ vars.ALLOWED_SSH_CIDR }}
           TF_VAR_ssh_public_key_path: /tmp/lab_key.pub
           TF_VAR_tfstate_bucket: ${{ vars.TFSTATE_BUCKET }}
-          TF_VAR_tfstate_lock_table: ${{ vars.TFSTATE_LOCK_TABLE || 'fleet-audit-tflock' }}
