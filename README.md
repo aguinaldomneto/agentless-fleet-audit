@@ -4,7 +4,7 @@
 
 Inventário e compliance **sem agente** para servidores Linux e Unix (incluindo HP-UX), orquestrado com **n8n**, armazenado em **PostgreSQL** e visualizado no **Grafana**.
 
-> Status: em construção. Coleta ponta a ponta funcionando (n8n → gateway → SSH → Postgres, com regras e deduplicação); alertas no Telegram, abertura e fechamento automático de chamado no Jira e dashboard Grafana provisionado como código.
+> Status: validado ponta a ponta numa VM na AWS (11 hosts: 3 base + 6 frota + 2 legados) — coleta (n8n → gateway → SSH → Postgres, com regras e deduplicação), alertas no Telegram, abertura e fechamento automático de chamado no Jira e dashboard Grafana provisionado como código.
 
 ## Problema
 
@@ -47,7 +47,29 @@ Um evento por mensagem, no formato de chamado, com três severidades e **lembret
 
 Cada alerta aberto vem com os botões **✅ Reconhecer** (pausa os lembretes até resolver) e **🔕 Silenciar 4h**. Se a severidade **subir**, o reconhecimento é desfeito e um novo alerta sai. Recuperação é sempre avisada, com data de resolução e duração. Intervalos ajustáveis com `make set-reminders`.
 
-<p align="center"><img src="docs/img/alerta-telegram.jpeg" alt="Alertas de evento aberto e resolvido no Telegram" width="380"></p>
+<table><tr>
+<td><img src="docs/img/alerta-telegram.jpeg" alt="Alertas de evento aberto e resolvido no Telegram" width="280"></td>
+<td><img src="docs/img/telegram-reconhecido.png" alt="Reconhecimento de alerta pelo botão, com lembretes pausados" width="280"></td>
+<td><img src="docs/img/telegram-resolvido.png" alt="Aviso de evento resolvido com duração" width="280"></td>
+</tr></table>
+
+## Grafana
+
+Onze hosts monitorados, eventos abertos com link direto para o chamado no Jira, uso de filesystem e certificados por vencimento — tudo lido do mesmo Postgres da ingestão.
+
+<table><tr>
+<td><img src="docs/img/grafana-alerta.png" alt="Dashboard com 11 hosts e 3 eventos críticos, cada um com o chamado do Jira" width="420"></td>
+<td><img src="docs/img/grafana-resolvido.png" alt="Dashboard sem eventos abertos" width="420"></td>
+</tr></table>
+
+## Jira
+
+Chamado aberto automaticamente com todos os campos do evento (severidade, host, regra, detalhe) e fechado sozinho quando o Postgres marca o achado como resolvido — a transição usada é sempre a primeira de categoria "done" do fluxo do projeto, então funciona com qualquer configuração.
+
+<table><tr>
+<td><img src="docs/img/jira-chamado-auto.png" alt="Descrição do chamado gerada automaticamente a partir do evento" width="420"></td>
+<td><img src="docs/img/jira-resolvido.png" alt="Chamados com status Resolvido e resolução preenchida" width="420"></td>
+</tr></table>
 
 ## Decisões técnicas
 
@@ -201,8 +223,10 @@ make lab-resolve    # corrige os cenários de demonstração / make lab-break vo
 - [x] Dashboard Grafana provisionado (eventos, hosts, disco, certificados, taxa de coleta, MTTR)
 - [x] Chamado no Jira: abre em evento crítico, comenta e fecha na resolução
 - [x] Três severidades com lembrete recorrente (1h/3h/8h) e botões Reconhecer/Silenciar no Telegram
-- [x] Laboratório com 9 servidores e cenários variados (`make fleet-up`)
+- [x] Laboratório com 11 servidores e cenários variados (`make fleet-up` + `make legacy-up`)
 - [x] n8n provisionado sem clique: credenciais do `.env`, workflows importados e publicados
 - [x] Alvos legados (Ubuntu 12.04 / OpenSSH 5.9, CentOS 7) com perfil de SSH por host
 - [x] Postgres 16 → 17 com `make pg-upgrade` (dump/restore verificado, rollback automático)
 - [x] Terraform: mesmo stack numa VM na AWS (free tier) ou na Oracle Cloud (Always Free), só SSH exposto
+- [x] `.env` validado antes de rodar (`make check-env`): CRLF, espaço sobrando, token quebrado em duas linhas
+- [ ] Telegram avisado em mudanças do chamado no Jira: reatribuição, troca de fila/status e mudança de severidade
