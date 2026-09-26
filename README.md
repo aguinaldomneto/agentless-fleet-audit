@@ -71,6 +71,8 @@ Chamado aberto automaticamente com todos os campos do evento (severidade, host, 
 <td><img src="docs/img/jira-resolvido.png" alt="Chamados com status Resolvido e resolução preenchida" width="420"></td>
 </tr></table>
 
+Um segundo workflow (`fleet-audit: mudanças no Jira`) observa o que um **analista humano** muda no chamado — responsável, status/fila e prioridade — e avisa no Telegram. É *polling*, não webhook: a cada 5 min busca no Jira (`JQL: labels = fleet-audit AND updated >= -15m`) os chamados tocados recentemente, compara com o que ficou salvo da rodada anterior (`jira_watch`) e só manda mensagem quando algo realmente mudou. A primeira vez que vê um chamado só grava a base, para não notificar tudo que já existia ao ligar.
+
 ## Decisões técnicas
 
 | Decisão | Motivo |
@@ -94,6 +96,7 @@ Chamado aberto automaticamente com todos os campos do evento (severidade, host, 
 | **Botões sem URL pública** | O `telegram-bridge` busca os cliques por *long polling* (`getUpdates`) e repassa ao webhook **interno** do n8n. Nada do laboratório fica exposto na internet. A ação é validada no banco: só o chat configurado pode reconhecer ou silenciar. |
 | **Token do bot isolado** | Mesmo padrão do gateway SSH: o token do Telegram fica só no `telegram-bridge`; o n8n fala com ele pela rede interna com um token próprio. |
 | **Jira num workflow separado** | Chamado só para evento crítico; resolução comenta duração e move para a primeira transição de categoria *done* (funciona com qualquer fluxo de projeto). Jira fora do ar não afeta o Telegram, e vice-versa. |
+| **Mudança no Jira por *polling*, não webhook** | Um webhook do Jira Cloud precisaria expor o n8n publicamente (com TLS) — quebra a decisão de manter o laboratório fechado atrás de SSH. *Polling* a cada 5 min reaproveita o mesmo padrão do resto do projeto (schedule + Postgres) e a latência é irrelevante para avisar um analista de uma mudança de responsável/status/prioridade. |
 | **Credenciais como código** | IDs fixos nos workflows + credenciais geradas do `.env` na subida. Clonar e rodar `make up` entrega o n8n pronto, sem escolher credencial nó a nó; trocar um token é editar o `.env` e rodar `make n8n-setup`. Teste no CI garante que todo nó aponta para uma credencial que existe. |
 | **Upgrade de major sem risco** | `make pg-upgrade`: para quem escreve, `pg_dumpall`, sobe a versão nova em **volume novo**, restaura, compara a contagem de linhas de todas as tabelas e só então troca o `.env`. Qualquer falha volta sozinha para a versão anterior; o volume antigo fica intacto para rollback manual. |
 | **Versões fixas** | n8n e Grafana com tag exata: `latest` mudou a interface do n8n no meio do projeto. Atualização é decisão, não acidente. |
@@ -202,9 +205,9 @@ Isso é só para a primeira vez (o `.env` ainda não existe na VM, tokens entram
 ```sh
 cd infra/aws
 make up          # terraform apply (pede confirmação) + mostra ssh/túnel prontos com o IP novo
-make bootstrap    # o mesmo apply, mas já entra por SSH e roda make up + fleet-up + legacy-up lá dentro
-make ssh          # conecta sem copiar/colar IP
-make down         # pausa (idêntico ao terraform apply -var instance_state=stopped)
+make bootstrap   # o mesmo apply, mas já entra por SSH e roda make up + fleet-up + legacy-up lá dentro
+make ssh         # conecta sem copiar/colar IP
+make down        # pausa (idêntico ao terraform apply -var instance_state=stopped)
 ```
 
 Na Oracle (ARM), `ubuntu-12` não sobe: a imagem do Ubuntu 12.04 só existe para x86. Na AWS a VM é x86 e todos os alvos sobem.
@@ -239,4 +242,4 @@ make lab-resolve    # corrige os cenários de demonstração / make lab-break vo
 - [x] Postgres 16 → 17 com `make pg-upgrade` (dump/restore verificado, rollback automático)
 - [x] Terraform: mesmo stack numa VM na AWS (free tier) ou na Oracle Cloud (Always Free), só SSH exposto
 - [x] `.env` validado antes de rodar (`make check-env`): CRLF, espaço sobrando, token quebrado em duas linhas
-- [ ] Telegram avisado em mudanças do chamado no Jira: reatribuição, troca de fila/status e mudança de severidade
+- [x] Telegram avisado em mudanças do chamado no Jira: responsável, status/fila e prioridade (`jira_watch`, *polling* a cada 5 min)

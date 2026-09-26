@@ -1,0 +1,368 @@
+{
+  "name": "fleet-audit: mudanças no Jira",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b9a12117-d8ef-4d6e-92cf-d541400b67c2",
+      "name": "Executar agora",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "id": "12ddfa4b-f3ba-4458-b119-69945f522959",
+      "name": "A cada 5 min",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT value FROM settings WHERE key = 'jira_base_url') AS base_url,\n       (SELECT value FROM settings WHERE key = 'jira_project')  AS project;",
+        "options": {}
+      },
+      "id": "a75a16d6-3fbf-4e17-bf2a-ef9433c55944",
+      "name": "Config Jira",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        100
+      ],
+      "notes": "Credencial: Postgres inventory_rw.",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "d0f6b1b1-9a9b-5e2a-9f0b-7f8b6b1a2c31",
+              "leftValue": "={{ $json.base_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            },
+            {
+              "id": "e1a7c2c2-0b0c-5f3b-a01c-8090c2b3d442",
+              "leftValue": "={{ $json.project }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a030f4f1-ce87-4d5a-a3a3-93961fff4bcc",
+      "name": "Jira configurado?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        480,
+        100
+      ]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.base_url.replace(/\\/+$/, '') + '/rest/api/3/search' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "jql",
+              "value": "={{ 'project = \"' + $json.project + '\" AND labels = \"fleet-audit\" AND updated >= -15m' }}"
+            },
+            {
+              "name": "fields",
+              "value": "status,assignee,priority"
+            },
+            {
+              "name": "maxResults",
+              "value": "100"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "afcf063d-1c5e-4095-a6be-8788059d6cfe",
+      "name": "Buscar atualizados",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        0
+      ],
+      "notes": "Credencial: Basic Auth (e-mail Atlassian + API token). Janela de 15 min = 3x a folga do agendamento de 5 min, sobrevive a uma rodada perdida.",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "fleetAuditJiraBA",
+          "name": "Jira"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nó \"Montar mudanças\" (Code, Run Once for All Items).\n// Entrada: 1 item com a resposta de GET /rest/api/3/search (fields=status,assignee,priority).\n// Saída: 1 item por chamado retornado, só com os campos que este workflow observa.\n// Fonte da verdade deste código: n8n/code/jira_changes_parse.js (testado em tests/n8n).\nconst issues = $input.first().json.issues || [];\nreturn issues.map((it) => ({\n  json: {\n    key: it.key,\n    assignee: it.fields && it.fields.assignee ? it.fields.assignee.displayName : null,\n    status: it.fields && it.fields.status ? it.fields.status.name : null,\n    priority: it.fields && it.fields.priority ? it.fields.priority.name : null,\n  },\n}));\n"
+      },
+      "id": "81514ff0-4393-4592-8391-e46d19b4ca73",
+      "name": "Montar mudanças",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        960,
+        0
+      ],
+      "notes": "code: jira_changes_parse.js"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT (SELECT value FROM settings WHERE key = 'telegram_chat_id') AS chat_id,\n       $1::text AS jira_key, $2::text AS assignee, $3::text AS status, $4::text AS priority,\n       d.*\n  FROM jira_watch_diff($1::text, $2::text, $3::text, $4::text) d;",
+        "options": {
+          "queryReplacement": "={{ [ $json.key, $json.assignee, $json.status, $json.priority ] }}"
+        }
+      },
+      "id": "a3f28e04-1e1e-462a-be72-fdbcc720dd08",
+      "name": "Comparar estado",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1200,
+        0
+      ],
+      "notes": "Credencial: Postgres inventory_rw. jira_watch_diff grava o estado novo e só devolve changed=true quando algo mudou desde a rodada anterior.",
+      "credentials": {
+        "postgres": {
+          "id": "fleetAuditPostgr",
+          "name": "Postgres (inventory_rw)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "f2b8d3d3-1c1d-6045-b12d-91a1d3c4e553",
+              "leftValue": "={{ $json.changed }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "5390da3f-ce39-4cbb-acb8-fafa46a36865",
+      "name": "Mudou?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1440,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nó \"Montar mensagem de mudança\" (Code, Run Once for Each Item).\n// Entrada: 1 linha de jira_watch_diff (só chega aqui quando changed = true),\n// com os valores atuais e os anteriores, mais o chat_id do Telegram.\n// Saída: { chat_id, text } pronto para o telegram-bridge.\n// Fonte da verdade deste código: n8n/code/jira_change_message.js (testado em tests/n8n).\nconst r = $json;\nconst esc = (s) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');\nconst who = (v) => (v ? esc(v) : 'não atribuído');\n\nconst changes = [];\nif (r.old_assignee !== r.assignee) changes.push(`<b>Responsável:</b> ${who(r.old_assignee)} → ${who(r.assignee)}`);\nif (r.old_status !== r.status) changes.push(`<b>Status:</b> ${esc(r.old_status)} → ${esc(r.status)}`);\nif (r.old_priority !== r.priority) changes.push(`<b>Prioridade:</b> ${esc(r.old_priority)} → ${esc(r.priority)}`);\n\nconst text = ['🔄 <b>CHAMADO ATUALIZADO</b>', `🎫 Chamado: ${esc(r.jira_key)}`, ...changes].join('\\n');\n\nreturn { json: { chat_id: r.chat_id, text } };\n"
+      },
+      "id": "2401f1d6-6c5e-454c-a175-6be1dd0bbb1f",
+      "name": "Montar mensagem de mudança",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1680,
+        0
+      ],
+      "notes": "code: jira_change_message.js"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://telegram-bridge:8081/send",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ chat_id: $json.chat_id, text: $json.text }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "20d3a1d0-f064-4b1a-99a1-ffe890bee830",
+      "name": "Enviar Telegram",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        0
+      ],
+      "notes": "Via telegram-bridge (única peça com o token do bot). Credencial: Header Auth X-Bridge-Token.",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "fleetAuditBridge",
+          "name": "Bridge"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Executar agora": {
+      "main": [
+        [
+          {
+            "node": "Config Jira",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "A cada 5 min": {
+      "main": [
+        [
+          {
+            "node": "Config Jira",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config Jira": {
+      "main": [
+        [
+          {
+            "node": "Jira configurado?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Jira configurado?": {
+      "main": [
+        [
+          {
+            "node": "Buscar atualizados",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Buscar atualizados": {
+      "main": [
+        [
+          {
+            "node": "Montar mudanças",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar mudanças": {
+      "main": [
+        [
+          {
+            "node": "Comparar estado",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Comparar estado": {
+      "main": [
+        [
+          {
+            "node": "Mudou?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mudou?": {
+      "main": [
+        [
+          {
+            "node": "Montar mensagem de mudança",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Montar mensagem de mudança": {
+      "main": [
+        [
+          {
+            "node": "Enviar Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Sao_Paulo"
+  },
+  "pinData": {},
+  "active": false,
+  "id": "fleetAuditJiraCh"
+}

@@ -46,8 +46,9 @@ import-workflows: n8n-wait ## importa e publica TODOS os workflows (credenciais 
 	$(N8N_EXEC) n8n import:workflow --separate --input=/workflows
 	@for id in $(WF_IDS); do $(N8N_EXEC) n8n publish:workflow --id=$$id >/dev/null && echo "publicado: $$id"; done
 	@if grep -q '^JIRA_API_TOKEN=.' .env; then \
-	  $(N8N_EXEC) n8n publish:workflow --id=fleetAuditJira01 >/dev/null && echo "publicado: fleetAuditJira01"; \
-	else echo "Jira sem JIRA_API_TOKEN no .env: workflow importado, não publicado"; fi
+	  for id in fleetAuditJira01 fleetAuditJiraCh; do \
+	    $(N8N_EXEC) n8n publish:workflow --id=$$id >/dev/null && echo "publicado: $$id"; done; \
+	else echo "Jira sem JIRA_API_TOKEN no .env: workflows importados, não publicados"; fi
 	docker compose restart n8n    # publicação pela CLI só vale após reiniciar
 
 import-workflow: n8n-wait ## importa e publica um só: make import-workflow WF=jira
@@ -76,6 +77,7 @@ test-bridge:
 test-n8n:
 	node tests/n8n/test_format_message.js
 	node tests/n8n/test_jira.js
+	node tests/n8n/test_jira_changes.js
 	python3 n8n/sync_code.py --check
 	python3 tests/n8n/test_credentials.py
 
